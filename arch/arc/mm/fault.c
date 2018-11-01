@@ -141,17 +141,14 @@ good_area:
 	 */
 	fault = handle_mm_fault(vma, address, flags);
 
-	if (fatal_signal_pending(current)) {
-
+	if (unlikely((fault & VM_FAULT_RETRY) && signal_pending(current))) {
+		if (fatal_signal_pending(current) && !user_mode(regs))
+			goto no_context;
 		/*
 		 * if fault retry, mmap_sem already relinquished by core mm
 		 * so OK to return to user mode (with signal handled first)
 		 */
-		if (fault & VM_FAULT_RETRY) {
-			if (!user_mode(regs))
-				goto no_context;
-			return;
-		}
+		return;
 	}
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
