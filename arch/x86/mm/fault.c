@@ -1483,9 +1483,7 @@ good_area:
 	if (unlikely(fault & VM_FAULT_RETRY)) {
 		bool is_user = flags & FAULT_FLAG_USER;
 
-		/* Retry at most once */
 		if (flags & FAULT_FLAG_ALLOW_RETRY) {
-			flags &= ~FAULT_FLAG_ALLOW_RETRY;
 			flags |= FAULT_FLAG_TRIED;
 			if (is_user && signal_pending(tsk))
 				return;
