@@ -2497,6 +2497,14 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 		return handle_userfault(vmf, VM_UFFD_WP);
 	}
 
+	return do_wp_page_cont(vmf);
+}
+
+vm_fault_t do_wp_page_cont(struct vm_fault *vmf)
+	__releases(vmf->ptl)
+{
+	struct vm_area_struct *vma = vmf->vma;
+
 	vmf->page = vm_normal_page(vma, vmf->address, vmf->orig_pte);
 	if (!vmf->page) {
 		/*

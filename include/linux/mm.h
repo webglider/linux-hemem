@@ -445,6 +445,8 @@ struct vm_fault {
 					 */
 };
 
+vm_fault_t do_wp_page_cont(struct vm_fault *vmf);
+
 /* page entry size for vm->huge_fault() */
 enum page_entry_size {
 	PE_SIZE_PTE = 0,
