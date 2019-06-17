@@ -552,6 +552,8 @@ out:
 	return ret;
 }
 
+EXPORT_SYMBOL(handle_userfault);
+
 static void userfaultfd_event_wait_completion(struct userfaultfd_ctx *ctx,
 					      struct userfaultfd_wait_queue *ewq)
 {
@@ -1259,8 +1261,10 @@ static __always_inline int validate_range(struct mm_struct *mm,
 static inline bool vma_can_userfault(struct vm_area_struct *vma,
 				     unsigned long vm_flags)
 {
+	printk("userfaultfd vma_can_userfault: vma is dax: %d\n", vma_is_dax(vma));
+	
 	/* FIXME: add WP support to hugetlbfs and shmem */
-	return vma_is_anonymous(vma) ||
+	return vma_is_anonymous(vma) || vma_is_dax(vma) ||
 		((is_vm_hugetlb_page(vma) || vma_is_shmem(vma)) &&
 		 !(vm_flags & VM_UFFD_WP));
 }
