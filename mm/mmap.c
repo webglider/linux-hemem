@@ -2229,8 +2229,9 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 
 	/* Check the cache first. */
 	vma = vmacache_find(mm, addr);
-	if (likely(vma))
+	if (likely(vma)) {
 		return vma;
+	}
 
 	rb_node = mm->mm_rb.rb_node;
 
@@ -2248,8 +2249,9 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 			rb_node = rb_node->rb_right;
 	}
 
-	if (vma)
+	if (vma) {
 		vmacache_update(addr, vma);
+	}
 	return vma;
 }
 

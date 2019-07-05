@@ -1261,8 +1261,6 @@ static __always_inline int validate_range(struct mm_struct *mm,
 static inline bool vma_can_userfault(struct vm_area_struct *vma,
 				     unsigned long vm_flags)
 {
-	printk("userfaultfd vma_can_userfault: vma is dax: %d\n", vma_is_dax(vma));
-	
 	/* FIXME: add WP support to hugetlbfs and shmem */
 	return vma_is_anonymous(vma) || vma_is_dax(vma) ||
 		((is_vm_hugetlb_page(vma) || vma_is_shmem(vma)) &&
@@ -1281,7 +1279,8 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 	bool found;
 	bool basic_ioctls;
 	unsigned long start, end, vma_end;
-
+	int uffd_vma_ctx_null;
+		
 	user_uffdio_register = (struct uffdio_register __user *) arg;
 
 	ret = -EFAULT;
@@ -1416,8 +1415,10 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		 * userfaultfd and with the right tracking mode too.
 		 */
 		if (vma->vm_userfaultfd_ctx.ctx == ctx &&
-		    (vma->vm_flags & vm_flags) == vm_flags)
+		    (vma->vm_flags & vm_flags) == vm_flags) {
+			printk("userfaultfd: userfaultfd_register: vma already registered with proper tracking mode\n");
 			goto skip;
+	        }
 
 		if (vma->vm_start > start)
 			start = vma->vm_start;
@@ -1430,17 +1431,24 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 				 ((struct vm_userfaultfd_ctx){ ctx }));
 		if (prev) {
 			vma = prev;
+			printk("userfaultfd: userfaultfd_register: vma prev\n");
 			goto next;
 		}
 		if (vma->vm_start < start) {
+			printk("userfaultfd: userfaultfd_register: vma->vm_start < start\n");
 			ret = split_vma(mm, vma, start, 1);
-			if (ret)
+			if (ret) {
+				printk("userfaultfd: userfaultfd_register: vma->vm_start < start: split_vma ret != 0\n");
 				break;
+			}
 		}
 		if (vma->vm_end > end) {
+			printk("userfaultfd: userfaultfd_register: vma->vm_end > end\n");
 			ret = split_vma(mm, vma, end, 0);
-			if (ret)
+			if (ret) {
+				printk("userfaultfd: userfaultfd_register: vma->vm_end > end: split_vma ret != 0\n");
 				break;
+			}
 		}
 	next:
 		/*
@@ -1450,7 +1458,6 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		 */
 		vma->vm_flags = new_flags;
 		vma->vm_userfaultfd_ctx.ctx = ctx;
-
 	skip:
 		prev = vma;
 		start = vma->vm_end;
@@ -1469,8 +1476,22 @@ out_unlock:
 		 * Declare the WP ioctl only if the WP mode is
 		 * specified and all checks passed with the range
 		 */
-		if (!(uffdio_register.mode & UFFDIO_REGISTER_MODE_WP))
+		if (!(uffdio_register.mode & UFFDIO_REGISTER_MODE_WP)) {
 			ioctls_out &= ~((__u64)1 << _UFFDIO_WRITEPROTECT);
+			printk("userfaultfd: userfaultfd_register: unset uffdio_writeprotect ioctl flag\n");
+		}
+		else {
+			printk("userfaultfd: userfaultfd_register: set uffdio_writeprotect ioctl flag\n");
+		}
+
+		uffd_vma_ctx_null = 1;
+		if (prev) {
+			uffd_vma_ctx_null = prev->vm_userfaultfd_ctx.ctx == NULL ? 1 : 0;
+			printk("userfaultfd: userfaultfd_register: prev vma is not null\n");	
+		}
+		printk("userfaultfd: userfaultfd_register: uffd vma ctx is null: %d\n", uffd_vma_ctx_null);
+		printk("userfaultfd: userfaultfd_register: vma start: %lx, vm length: %ld\n", prev->vm_start, prev->vm_end - prev->vm_start);
+		printk("userfaultfd: userfaultfd_register: vma: %p\n", prev);
 
 		/*
 		 * Now that we scanned all vmas we can already tell

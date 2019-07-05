@@ -31,19 +31,27 @@ static struct vm_area_struct *vma_find_uffd(struct mm_struct *mm,
 {
 	struct vm_area_struct *vma = find_vma(mm, start);
 
-	if (!vma)
+	if (!vma) {
+		printk("userfaultfd: vma_find_uffd: !vma\n");
 		return NULL;
+	}
 
+	printk("userfaultfd: vma_find_uffd: start: %lx\tlen: %ld\n", start, len);
+	printk("userfaultfd: vma_find_uffd: vma: %p\n", vma);
 	/*
 	 * Check the vma is registered in uffd, this is required to
 	 * enforce the VM_MAYWRITE check done at uffd registration
 	 * time.
 	 */
-	if (!vma->vm_userfaultfd_ctx.ctx)
+	if (!vma->vm_userfaultfd_ctx.ctx) {
+		printk("userfaultfd: vma_find_uffd: !vma->vm_userfaultfd_ctx.ctx\n");
 		return NULL;
+	}
 
-	if (start < vma->vm_start || start + len > vma->vm_end)
+	if (start < vma->vm_start || start + len > vma->vm_end) {
+		printk("userfaultfd: vma_find_uffd: region out of vma range\n");
 		return NULL;
+	}
 
 	return vma;
 }
@@ -646,6 +654,7 @@ int mwriteprotect_range(struct mm_struct *dst_mm, unsigned long start,
 	struct vm_area_struct *dst_vma;
 	pgprot_t newprot;
 	int err;
+	int dst_vma_null;
 
 	/*
 	 * Sanitize the command parameters:
@@ -673,12 +682,20 @@ int mwriteprotect_range(struct mm_struct *dst_mm, unsigned long start,
 	 * Make sure the vma is not shared, that the dst range is
 	 * both valid and fully within a single existing vma.
 	 */
-	if (!dst_vma || (dst_vma->vm_flags & VM_SHARED))
+	if (!dst_vma || ((dst_vma->vm_flags & VM_SHARED) && !vma_is_dax(dst_vma))) {
+		dst_vma_null = dst_vma == NULL ? 1 : 0;
+		printk("userfaultfd: mwriteprotect_range: dst_vma is null: %d\n", dst_vma_null);
+		printk("userfaultfd: mwriteprotect_range: !dst_vma or dst_vma is shared and not dax\n");
 		goto out_unlock;
-	if (!userfaultfd_wp(dst_vma))
+	}
+	if (!userfaultfd_wp(dst_vma)) {
+		printk("userfaultfd: mwriteprotect_range: dst_vma is not userfaultfd_wp\n");
 		goto out_unlock;
-	if (!vma_is_anonymous(dst_vma))
+	}
+	if (!(vma_is_anonymous(dst_vma) || vma_is_dax(dst_vma))) {
+		printk("userfaultfd: mwriteprotect_range: dst_vma is not anonymous or dax\n");
 		goto out_unlock;
+	}
 
 	if (enable_wp)
 		newprot = vm_get_page_prot(dst_vma->vm_flags & ~(VM_WRITE));
