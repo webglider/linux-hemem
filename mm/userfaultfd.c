@@ -32,24 +32,24 @@ static struct vm_area_struct *vma_find_uffd(struct mm_struct *mm,
 	struct vm_area_struct *vma = find_vma(mm, start);
 
 	if (!vma) {
-		printk("userfaultfd: vma_find_uffd: !vma\n");
+		printk("mm/userfaultfd.c: vma_find_uffd: !vma\n");
 		return NULL;
 	}
 
-	printk("userfaultfd: vma_find_uffd: start: %lx\tlen: %ld\n", start, len);
-	printk("userfaultfd: vma_find_uffd: vma: %p\n", vma);
+	printk("mm/userfaultfd.c: vma_find_uffd: start: %lx\tlen: %ld\n", start, len);
+	printk("mm/userfaultfd.c: vma_find_uffd: vma: %p\n", vma);
 	/*
 	 * Check the vma is registered in uffd, this is required to
 	 * enforce the VM_MAYWRITE check done at uffd registration
 	 * time.
 	 */
 	if (!vma->vm_userfaultfd_ctx.ctx) {
-		printk("userfaultfd: vma_find_uffd: !vma->vm_userfaultfd_ctx.ctx\n");
+		printk("mm/userfaultfd.c: vma_find_uffd: !vma->vm_userfaultfd_ctx.ctx\n");
 		return NULL;
 	}
 
 	if (start < vma->vm_start || start + len > vma->vm_end) {
-		printk("userfaultfd: vma_find_uffd: region out of vma range\n");
+		printk("mm/userfaultfd.c: vma_find_uffd: region out of vma range\n");
 		return NULL;
 	}
 
@@ -684,16 +684,16 @@ int mwriteprotect_range(struct mm_struct *dst_mm, unsigned long start,
 	 */
 	if (!dst_vma || ((dst_vma->vm_flags & VM_SHARED) && !vma_is_dax(dst_vma))) {
 		dst_vma_null = dst_vma == NULL ? 1 : 0;
-		printk("userfaultfd: mwriteprotect_range: dst_vma is null: %d\n", dst_vma_null);
-		printk("userfaultfd: mwriteprotect_range: !dst_vma or dst_vma is shared and not dax\n");
+		printk("mm/userfaultfd.c: mwriteprotect_range: dst_vma is null: %d\n", dst_vma_null);
+		printk("mm/userfaultfd.c: mwriteprotect_range: !dst_vma or dst_vma is shared and not dax\n");
 		goto out_unlock;
 	}
 	if (!userfaultfd_wp(dst_vma)) {
-		printk("userfaultfd: mwriteprotect_range: dst_vma is not userfaultfd_wp\n");
+		printk("mm/userfaultfd.c: mwriteprotect_range: dst_vma is not userfaultfd_wp\n");
 		goto out_unlock;
 	}
 	if (!(vma_is_anonymous(dst_vma) || vma_is_dax(dst_vma))) {
-		printk("userfaultfd: mwriteprotect_range: dst_vma is not anonymous or dax\n");
+		printk("mm/userfaultfd.c: mwriteprotect_range: dst_vma is not anonymous or dax\n");
 		goto out_unlock;
 	}
 
