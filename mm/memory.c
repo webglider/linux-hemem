@@ -2507,7 +2507,10 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 
+	//printk("mm/memory.c: do_wp_page()\n");
+
 	if (userfaultfd_pte_wp(vma, *vmf->pte)) {
+		printk("mm/memory.c: do_wp_page(): userfaultfd_pte_wp(vma, *vmf->pte)\n");
 		pte_unmap_unlock(vmf->pte, vmf->ptl);
 		return handle_userfault(vmf, VM_UFFD_WP);
 	}
@@ -3740,8 +3743,10 @@ static inline vm_fault_t create_huge_pmd(struct vm_fault *vmf)
 static inline vm_fault_t wp_huge_pmd(struct vm_fault *vmf, pmd_t orig_pmd)
 {
 	if (vma_is_anonymous(vmf->vma)) {
-		if (userfaultfd_huge_pmd_wp(vmf->vma, orig_pmd))
+		if (userfaultfd_huge_pmd_wp(vmf->vma, orig_pmd)) {
+			printk("mm/memory.c: wp_huge_pmd: userfault_huge_pmd_wp(vmf->vma, orig_pmd)\n");
 			return handle_userfault(vmf, VM_UFFD_WP);
+		}
 		return do_huge_pmd_wp_page(vmf, orig_pmd);
 	}
 	if (vmf->vma->vm_ops->huge_fault)
@@ -3841,8 +3846,10 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 	if (!vmf->pte) {
 		if (vma_is_anonymous(vmf->vma))
 			return do_anonymous_page(vmf);
-		else
+		else {
+			//printk("mm/memory.c: handle_pte_fault: !vmf->pte && !vma_is_anonymous -> do_fault\n");
 			return do_fault(vmf);
+		}
 	}
 
 	if (!pte_present(vmf->orig_pte))
@@ -3857,8 +3864,10 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 	if (unlikely(!pte_same(*vmf->pte, entry)))
 		goto unlock;
 	if (vmf->flags & FAULT_FLAG_WRITE) {
-		if (!pte_write(entry))
+		if (!pte_write(entry)) {
+			//printk("mm/memory.c: handle_pte_fault: vmf->flags & FAULT_FLAG_WRITE && !pte_write(entry) -> do_wp_page\n");
 			return do_wp_page(vmf);
+		}
 		entry = pte_mkdirty(entry);
 	}
 	entry = pte_mkyoung(entry);

@@ -364,8 +364,10 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 	 * shmem_vm_ops->fault method is invoked even during
 	 * coredumping without mmap_sem and it ends up here.
 	 */
-	if (current->flags & (PF_EXITING|PF_DUMPCORE))
+	if (current->flags & (PF_EXITING|PF_DUMPCORE)) {
+		printk("fs/userfaultfd.c: handle_userfault: current->flags & (PF_EXISTING|PF_DUMPCORE)\n");
 		goto out;
+        }
 
 	/*
 	 * Coredumping runs without mmap_sem so we can only check that
@@ -374,16 +376,20 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 	WARN_ON_ONCE(!rwsem_is_locked(&mm->mmap_sem));
 
 	ctx = vmf->vma->vm_userfaultfd_ctx.ctx;
-	if (!ctx)
+	if (!ctx){
+		printk("fs/userfaultfd.c: handle_userfault: !ctx\n");
 		goto out;
+	}
 
 	BUG_ON(ctx->mm != mm);
 
 	VM_BUG_ON(reason & ~(VM_UFFD_MISSING|VM_UFFD_WP));
 	VM_BUG_ON(!(reason & VM_UFFD_MISSING) ^ !!(reason & VM_UFFD_WP));
 
-	if (ctx->features & UFFD_FEATURE_SIGBUS)
+	if (ctx->features & UFFD_FEATURE_SIGBUS) {
+		printk("fs/userfaultfd.c: handle_userfault: ctx->features & UFFD_FEATURE_SIGBUS\n");
 		goto out;
+	}
 
 	/*
 	 * If it's already released don't get it. This avoids to loop
@@ -408,6 +414,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 		 * close the uffd.
 		 */
 		ret = VM_FAULT_NOPAGE;
+		printk("fs/userfaultfd.c: handle_userfault: ctx->released\n");
 		goto out;
 	}
 
@@ -436,6 +443,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 			dump_stack();
 		}
 #endif
+		printk("fs/userfaultfd.c: handle_userfault: !(vmf->flags & FAULT_FLAG_ALLOW_RETRY)\n");
 		goto out;
 	}
 
@@ -444,8 +452,10 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 	 * and wait.
 	 */
 	ret = VM_FAULT_RETRY;
-	if (vmf->flags & FAULT_FLAG_RETRY_NOWAIT)
+	if (vmf->flags & FAULT_FLAG_RETRY_NOWAIT){
+		printk("fs/userfaultfd.c: handle_userfault: vmf->flags & FAULT_FLAG_RETRY_NOWAIT\n");
 		goto out;
+	}
 
 	/* take the reference before dropping the mmap_sem */
 	userfaultfd_ctx_get(ctx);
@@ -477,13 +487,17 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 	set_current_state(blocking_state);
 	spin_unlock(&ctx->fault_pending_wqh.lock);
 
-	if (!is_vm_hugetlb_page(vmf->vma))
+	if (!is_vm_hugetlb_page(vmf->vma)) {
 		must_wait = userfaultfd_must_wait(ctx, vmf->address, vmf->flags,
 						  reason);
-	else
+		//printk("fs/userfaultfd.c: handle_userfault: !is_vm_hugetlb_page(vmf->vma) [must_wait: %d]\n", must_wait);
+	}
+	else {
 		must_wait = userfaultfd_huge_must_wait(ctx, vmf->vma,
 						       vmf->address,
 						       vmf->flags, reason);
+		//printk("fs/userfaultfd.c: handle_userfault: is_vm_hugetlb_page(vmf->vma) [must_wait: %d]\n", must_wait);
+	}
 	up_read(&mm->mmap_sem);
 
 	if (likely(must_wait && !READ_ONCE(ctx->released) &&
@@ -492,6 +506,8 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 		wake_up_poll(&ctx->fd_wqh, EPOLLIN);
 		schedule();
 		ret |= VM_FAULT_MAJOR;
+
+		printk("fs/userfaultfd.c: handle_userfault: must_wait && !READ_ONCE(ctx->released)...\n");
 
 		/*
 		 * False wakeups can orginate even from rwsem before
@@ -540,6 +556,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 		 */
 		list_del(&uwq.wq.entry);
 		spin_unlock(&ctx->fault_pending_wqh.lock);
+		//printk("fs/userfaultfd.c: handle_userfault: !list_empty_careful(&uwq.wq.entry)\n");
 	}
 
 	/*
@@ -547,6 +564,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 	 * already released.
 	 */
 	userfaultfd_ctx_put(ctx);
+	//printk("fs/userfaultfd.c: handle_userfault: done\n");
 
 out:
 	return ret;
@@ -1807,6 +1825,8 @@ static int userfaultfd_writeprotect(struct userfaultfd_ctx *ctx,
 	struct uffdio_writeprotect __user *user_uffdio_wp;
 	struct userfaultfd_wake_range range;
 	bool mode_wp, mode_dontwake;
+	
+	printk("fs/userfaultfd.c: userfaultfd_writeprotect: mwriteprotect_range\n");
 
 	if (READ_ONCE(ctx->mmap_changing))
 		return -EAGAIN;

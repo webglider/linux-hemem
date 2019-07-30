@@ -63,6 +63,7 @@ static inline bool userfaultfd_wp(struct vm_area_struct *vma)
 static inline bool userfaultfd_pte_wp(struct vm_area_struct *vma,
 				      pte_t pte)
 {
+	//printk("include/linux/userfaultfd_k.h: userfaultfd_pte_wp: userfaultfd_wp: [%d] pte_uffd_wp: [%d]\n", userfaultfd_wp(vma), pte_uffd_wp(pte));
 	return userfaultfd_wp(vma) && pte_uffd_wp(pte);
 }
 

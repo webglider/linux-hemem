@@ -133,6 +133,7 @@ static vm_fault_t __dev_dax_pte_fault(struct dev_dax *dev_dax,
 		return VM_FAULT_SIGBUS;
 
         if (vma && userfaultfd_missing(vma)) {
+		//printk("drivers/dax/device.c: __dev_dax_pte_fault: vma && userfaultfd_missing(vma)\n");
                 return handle_userfault(vmf, VM_UFFD_MISSING);
 	}
 
@@ -190,6 +191,7 @@ static vm_fault_t __dev_dax_pmd_fault(struct dev_dax *dev_dax,
 		return VM_FAULT_SIGBUS;
 
         if (vma && userfaultfd_missing(vma)) {
+		//printk("drivers/dax/device.c: __dev_dax_pmd_fault: vma && userfaultfd_missing(vm)\n");
                 return handle_userfault(vmf, VM_UFFD_MISSING);
 	}
 
@@ -250,7 +252,8 @@ static vm_fault_t __dev_dax_pud_fault(struct dev_dax *dev_dax,
 		return VM_FAULT_SIGBUS;
 
         if (vma && userfaultfd_missing(vma)) {
-                return handle_userfault(vmf, VM_UFFD_MISSING);
+                //printk("drivers/dax/device.c: __dev_dax_pud_fault: vma && userfaultfd_missing(vm)\n");
+		return handle_userfault(vmf, VM_UFFD_MISSING);
 	}
 	
 	

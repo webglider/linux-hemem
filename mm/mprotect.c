@@ -159,9 +159,11 @@ retry_pte:
 				ptent = pte_mk_savedwrite(ptent);
 
 			if (uffd_wp) {
+				printk("mm/mprotect.c: change_pte_range: uffd_wp\n");
 				ptent = pte_wrprotect(ptent);
 				ptent = pte_mkuffd_wp(ptent);
 			} else if (uffd_wp_resolve) {
+				printk("mm/mprotect.c: change_pte_range: uffd_wp_resolve\n");
 				ptent = pte_mkwrite(ptent);
 				ptent = pte_clear_uffd_wp(ptent);
 			}
@@ -353,8 +355,10 @@ static unsigned long change_protection_range(struct vm_area_struct *vma,
 	} while (pgd++, addr = next, addr != end);
 
 	/* Only flush the TLB if we actually modified any entries: */
-	if (pages)
+	if (pages) {
 		flush_tlb_range(vma, start, end);
+		//printk("mm/mprotect.c: change_protection_range: pages -> flush_tlb_range\n");
+	}
 	dec_tlb_flush_pending(mm);
 
 	return pages;
@@ -368,11 +372,15 @@ unsigned long change_protection(struct vm_area_struct *vma, unsigned long start,
 
 	BUG_ON((cp_flags & MM_CP_UFFD_WP_ALL) == MM_CP_UFFD_WP_ALL);
 
-	if (is_vm_hugetlb_page(vma))
+	if (is_vm_hugetlb_page(vma)) {
 		pages = hugetlb_change_protection(vma, start, end, newprot);
-	else
+		//printk("mm/mprotect.c: change_protection: is_vm_hugetlb_page(vma)\n");
+	}
+	else {
 		pages = change_protection_range(vma, start, end, newprot,
 						cp_flags);
+		//printk("mm/mprotect.c: change_protection: !is_vm_hugetlb_page(vma)\n");
+	}
 
 	return pages;
 }
