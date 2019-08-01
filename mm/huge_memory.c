@@ -1984,6 +1984,7 @@ int change_huge_pmd(struct vm_area_struct *vma, pmd_t *pmd,
 	if (preserve_write)
 		entry = pmd_mk_savedwrite(entry);
 	if (uffd_wp) {
+		printk("mm/huge_memory.c: change_huge_pmd: uffd_wp\n");
 		entry = pmd_wrprotect(entry);
 		entry = pmd_mkuffd_wp(entry);
 	} else if (uffd_wp_resolve) {
@@ -2256,8 +2257,10 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 				entry = pte_mkold(entry);
 			if (soft_dirty)
 				entry = pte_mksoft_dirty(entry);
-			if (uffd_wp)
+			if (uffd_wp) {
+				printk("mm/huge_memory.c: __split_huge_pmd_locked: uffd_wp\n");
 				entry = pte_mkuffd_wp(entry);
+			}
 		}
 		pte = pte_offset_map(&_pmd, addr);
 		BUG_ON(!pte_none(*pte));

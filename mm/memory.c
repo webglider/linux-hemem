@@ -2311,8 +2311,10 @@ static vm_fault_t wp_page_copy(struct vm_fault *vmf)
 		}
 		flush_cache_page(vma, vmf->address, pte_pfn(vmf->orig_pte));
 		entry = mk_pte(new_page, vma->vm_page_prot);
-		if (pte_uffd_wp(vmf->orig_pte))
+		if (pte_uffd_wp(vmf->orig_pte)) {
+			printk("mm/memory.c: wp_page_copy: pte_uffd_wp\n");
 			entry = pte_mkuffd_wp(entry);
+		}
 		else
 			entry = maybe_mkwrite(pte_mkdirty(entry), vma);
 		/*
@@ -2862,6 +2864,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	if (pte_swp_soft_dirty(vmf->orig_pte))
 		pte = pte_mksoft_dirty(pte);
 	if (pte_swp_uffd_wp(vmf->orig_pte)) {
+		printk("mm/memory.c: do_swap_page: pte_swp_uffd_wp\n");
 		pte = pte_mkuffd_wp(pte);
 		pte = pte_wrprotect(pte);
 	}
@@ -3748,6 +3751,12 @@ static inline vm_fault_t wp_huge_pmd(struct vm_fault *vmf, pmd_t orig_pmd)
 			return handle_userfault(vmf, VM_UFFD_WP);
 		}
 		return do_huge_pmd_wp_page(vmf, orig_pmd);
+	}
+	if (vma_is_dax(vmf->vma)) {
+		if (userfaultfd_huge_pmd_wp(vmf->vma, orig_pmd)) {
+			printk("mm/memory.c: wp_huge_pmd: userfault_huge_pmd_wp dax\n");
+			return handle_userfault(vmf, VM_UFFD_WP);
+		}
 	}
 	if (vmf->vma->vm_ops->huge_fault)
 		return vmf->vma->vm_ops->huge_fault(vmf, PE_SIZE_PMD);

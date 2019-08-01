@@ -399,6 +399,7 @@ static inline int pmd_uffd_wp(pmd_t pmd)
 
 static inline pmd_t pmd_mkuffd_wp(pmd_t pmd)
 {
+	printk("arch/x86/include/asm/pgtable.h: pmd_mkuffd_wp\n");
 	return pmd_set_flags(pmd, _PAGE_UFFD_WP);
 }
 

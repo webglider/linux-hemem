@@ -260,6 +260,7 @@ static inline unsigned long change_pmd_range(struct vm_area_struct *vma,
 			 * general THP write-protect in af9e4d5f2de2.
 			 */
 			if (next - addr != HPAGE_PMD_SIZE || uffd_wp_resolve) {
+				//printk("mm/mprotect.c: change_pmd_range: next - addr != HPAGE_PMD_SIZE || uffd_wp_resolve\n");
 				__split_huge_pmd(vma, pmd, addr, false, NULL);
 			} else {
 				int nr_ptes = change_huge_pmd(vma, pmd, addr,
@@ -267,10 +268,11 @@ static inline unsigned long change_pmd_range(struct vm_area_struct *vma,
 
 				if (nr_ptes) {
 					if (nr_ptes == HPAGE_PMD_NR) {
+						//printk("mm/mprotect.c: change_pmd_range: HPAGE_PMD_NR\n");
 						pages += HPAGE_PMD_NR;
 						nr_huge_updates++;
 					}
-
+					//printk("mm/mprotect.c: change_pmd_range: huge pmd was handled\n");
 					/* huge pmd was handled */
 					goto next;
 				}

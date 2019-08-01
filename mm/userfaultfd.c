@@ -110,8 +110,10 @@ static int mcopy_atomic_pte(struct mm_struct *dst_mm,
 
 	_dst_pte = pte_mkdirty(mk_pte(page, dst_vma->vm_page_prot));
 	if (dst_vma->vm_flags & VM_WRITE) {
-		if (wp_copy)
+		if (wp_copy) {
+			printk("mm/userfaultfd.c: mcopy_atomic_pte: wp_copy pte_mkuffd_wp\n");
 			_dst_pte = pte_mkuffd_wp(_dst_pte);
+		}
 		else
 			_dst_pte = pte_mkwrite(_dst_pte);
 	}
@@ -702,7 +704,7 @@ int mwriteprotect_range(struct mm_struct *dst_mm, unsigned long start,
 	else
 		newprot = vm_get_page_prot(dst_vma->vm_flags);
 
-	printk("mm/userfaultfd.c: mwriteprotect_range: changing protection\n");
+	printk("mm/userfaultfd.c: mwriteprotect_range: changing protection: enable_wp: [%d] is vm hugetlb_page: [%d]\n", enable_wp, is_vm_hugetlb_page(dst_vma));
 	change_protection(dst_vma, start, start + len, newprot,
 			  enable_wp ? MM_CP_UFFD_WP : MM_CP_UFFD_WP_RESOLVE);
 
