@@ -32,6 +32,8 @@
 
 static struct kmem_cache *userfaultfd_ctx_cachep __read_mostly;
 
+extern void dump_pagetable(unsigned long address);
+
 enum userfaultfd_state {
 	UFFD_STATE_WAIT_API,
 	UFFD_STATE_RUNNING,
@@ -1305,6 +1307,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 	bool basic_ioctls;
 	unsigned long start, end, vma_end;
 	int uffd_vma_ctx_null;
+        pgd_t *tmp_pgd;
 		
 	user_uffdio_register = (struct uffdio_register __user *) arg;
 
@@ -1441,7 +1444,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		 */
 		if (vma->vm_userfaultfd_ctx.ctx == ctx &&
 		    (vma->vm_flags & vm_flags) == vm_flags) {
-			printk("fs/userfaultfd.c: userfaultfd_register: vma already registered with proper tracking mode\n");
+			//printk("fs/userfaultfd.c: userfaultfd_register: vma already registered with proper tracking mode\n");
 			goto skip;
 	        }
 
@@ -1456,22 +1459,22 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 				 ((struct vm_userfaultfd_ctx){ ctx }));
 		if (prev) {
 			vma = prev;
-			printk("fs/userfaultfd.c: userfaultfd_register: vma prev\n");
+			//printk("fs/userfaultfd.c: userfaultfd_register: vma prev\n");
 			goto next;
 		}
 		if (vma->vm_start < start) {
-			printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_start < start\n");
+			//printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_start < start\n");
 			ret = split_vma(mm, vma, start, 1);
 			if (ret) {
-				printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_start < start: split_vma ret != 0\n");
+				//printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_start < start: split_vma ret != 0\n");
 				break;
 			}
 		}
 		if (vma->vm_end > end) {
-			printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_end > end\n");
+			//printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_end > end\n");
 			ret = split_vma(mm, vma, end, 0);
 			if (ret) {
-				printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_end > end: split_vma ret != 0\n");
+				//printk("fs/userfaultfd.c: userfaultfd_register: vma->vm_end > end: split_vma ret != 0\n");
 				break;
 			}
 		}
@@ -1503,20 +1506,20 @@ out_unlock:
 		 */
 		if (!(uffdio_register.mode & UFFDIO_REGISTER_MODE_WP)) {
 			ioctls_out &= ~((__u64)1 << _UFFDIO_WRITEPROTECT);
-			printk("fs/userfaultfd.c: userfaultfd_register: unset uffdio_writeprotect ioctl flag\n");
+			//printk("fs/userfaultfd.c: userfaultfd_register: unset uffdio_writeprotect ioctl flag\n");
 		}
 		else {
-			printk("fs/userfaultfd.c: userfaultfd_register: set uffdio_writeprotect ioctl flag\n");
+			//printk("fs/userfaultfd.c: userfaultfd_register: set uffdio_writeprotect ioctl flag\n");
 		}
 
 		uffd_vma_ctx_null = 1;
 		if (prev) {
 			uffd_vma_ctx_null = prev->vm_userfaultfd_ctx.ctx == NULL ? 1 : 0;
-			printk("fs/userfaultfd.c: userfaultfd_register: prev vma is not null\n");	
+			//printk("fs/userfaultfd.c: userfaultfd_register: prev vma is not null\n");	
 		}
-		printk("fs/userfaultfd.c: userfaultfd_register: uffd vma ctx is null: %d\n", uffd_vma_ctx_null);
-		printk("fs/userfaultfd.c: userfaultfd_register: vma start: %lx, vm length: %ld\n", prev->vm_start, prev->vm_end - prev->vm_start);
-		printk("fs/userfaultfd.c: userfaultfd_register: vma: %p\n", prev);
+		//printk("fs/userfaultfd.c: userfaultfd_register: uffd vma ctx is null: %d\n", uffd_vma_ctx_null);
+		//printk("fs/userfaultfd.c: userfaultfd_register: vma start: %lx, vm length: %ld\n", prev->vm_start, prev->vm_end - prev->vm_start);
+		//printk("fs/userfaultfd.c: userfaultfd_register: vma: %p\n", prev);
 
 		/*
 		 * Now that we scanned all vmas we can already tell
@@ -1525,6 +1528,12 @@ out_unlock:
 		 */
 		if (put_user(ioctls_out, &user_uffdio_register->ioctls))
 			ret = -EFAULT;
+
+		//printk("fs/userfaultfd: userfaultfd_register: register va: %016llX\n", uffdio_register.range.start);
+		dump_pagetable(uffdio_register.range.start);
+
+		tmp_pgd = prev->vm_mm->pgd;
+	//	printk("fs/userfaultfd.c: userfaultfd_register: pgd: %llX\t*pgd:%llX\n", tmp_pgd, *tmp_pgd);
 	}
 out:
 	return ret;

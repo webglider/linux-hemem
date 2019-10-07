@@ -442,7 +442,7 @@ static int bad_address(void *p)
 	return probe_kernel_address((unsigned long *)p, dummy);
 }
 
-static void dump_pagetable(unsigned long address)
+void dump_pagetable(unsigned long address)
 {
 	pgd_t *base = __va(read_cr3_pa());
 	pgd_t *pgd = base + pgd_index(address);
@@ -454,7 +454,7 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(pgd))
 		goto bad;
 
-	pr_info("PGD %lx ", pgd_val(*pgd));
+	pr_info("PGD %016llx ", pgd_val(*pgd));
 
 	if (!pgd_present(*pgd))
 		goto out;
@@ -463,7 +463,7 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(p4d))
 		goto bad;
 
-	pr_cont("P4D %lx ", p4d_val(*p4d));
+	pr_cont("P4D %016llx ", p4d_val(*p4d));
 	if (!p4d_present(*p4d) || p4d_large(*p4d))
 		goto out;
 
@@ -471,7 +471,7 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(pud))
 		goto bad;
 
-	pr_cont("PUD %lx ", pud_val(*pud));
+	pr_cont("PUD %016llx ", pud_val(*pud));
 	if (!pud_present(*pud) || pud_large(*pud))
 		goto out;
 
@@ -479,7 +479,7 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(pmd))
 		goto bad;
 
-	pr_cont("PMD %lx ", pmd_val(*pmd));
+	pr_cont("PMD %016llx ", pmd_val(*pmd));
 	if (!pmd_present(*pmd) || pmd_large(*pmd))
 		goto out;
 
@@ -487,13 +487,14 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(pte))
 		goto bad;
 
-	pr_cont("PTE %lx", pte_val(*pte));
+	pr_cont("PTE %016llx", pte_val(*pte));
 out:
 	pr_cont("\n");
 	return;
 bad:
 	pr_info("BAD\n");
 }
+EXPORT_SYMBOL(dump_pagetable);
 
 #endif /* CONFIG_X86_64 */
 
