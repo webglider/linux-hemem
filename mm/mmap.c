@@ -1413,16 +1413,20 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 
 	/* Careful about overflows.. */
 	len = PAGE_ALIGN(len);
-	if (!len)
+	if (!len) {
+		printk("mm/mmap.c: do_mmap: !PAGE_ALIGN(len)\n");
 		return -ENOMEM;
+	}
 
 	/* offset overflow? */
 	if ((pgoff + (len >> PAGE_SHIFT)) < pgoff)
 		return -EOVERFLOW;
 
 	/* Too many mappings? */
-	if (mm->map_count > sysctl_max_map_count)
+	if (mm->map_count > sysctl_max_map_count) {
+		printk("mm/mmap.c: do_mmap: mm->map_count > sysctl_max_map_count\n");
 		return -ENOMEM;
+	}
 
 	/* Obtain the address to map to. we verify (or select) it and ensure
 	 * that it represents a valid section of the address space.
@@ -1719,15 +1723,19 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 		nr_pages = count_vma_pages_range(mm, addr, addr + len);
 
 		if (!may_expand_vm(mm, vm_flags,
-					(len >> PAGE_SHIFT) - nr_pages))
+					(len >> PAGE_SHIFT) - nr_pages)) {
+			printk("mm/mmap.c: mmap_region: !may_expand_vm)\n");
 			return -ENOMEM;
+		}
 	}
 
 	/* Clear old maps */
 	while (find_vma_links(mm, addr, addr + len, &prev, &rb_link,
 			      &rb_parent)) {
-		if (do_munmap(mm, addr, len, uf))
+		if (do_munmap(mm, addr, len, uf)) {
+			printk("mm/mmap.c: mmap_region: do_munmap\n");
 			return -ENOMEM;
+		}
 	}
 
 	/*
@@ -1735,8 +1743,10 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 	 */
 	if (accountable_mapping(file, vm_flags)) {
 		charged = len >> PAGE_SHIFT;
-		if (security_vm_enough_memory_mm(mm, charged))
+		if (security_vm_enough_memory_mm(mm, charged)) {
+			printk("mm/mmap.c: mmap_region: security_vm_enough_memory_mm\n");
 			return -ENOMEM;
+		}
 		vm_flags |= VM_ACCOUNT;
 	}
 
@@ -1755,6 +1765,7 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 	 */
 	vma = vm_area_alloc(mm);
 	if (!vma) {
+		printk("mm/mmap.c: mmap_region: !vm_area_alloc\n");
 		error = -ENOMEM;
 		goto unacct_error;
 	}
@@ -2652,13 +2663,17 @@ int __split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	if (vma->vm_ops && vma->vm_ops->split) {
 		err = vma->vm_ops->split(vma, addr);
-		if (err)
+		if (err) {
+			printk("mm/mmap.c: __split_vma: vma->vm_ops->split(vma, addr)\n");
 			return err;
+		}
 	}
 
 	new = vm_area_dup(vma);
-	if (!new)
+	if (!new) {
+		printk("mm/mmap.c: __split_vma: vm_area_dup(vma)\n");
 		return -ENOMEM;
+	}
 
 	if (new_below)
 		new->vm_end = addr;
@@ -2668,12 +2683,16 @@ int __split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 
 	err = vma_dup_policy(vma, new);
-	if (err)
+	if (err) {
+		printk("mm/mmap.c: __split_vma: vma_dup_policy(vma, new)\n");
 		goto out_free_vma;
+	}
 
 	err = anon_vma_clone(new, vma);
-	if (err)
+	if (err) {
+		printk("mm/mmap.c: __split_vma: anon_vma_clone(new, vma)\n");
 		goto out_free_mpol;
+	}
 
 	if (new->vm_file)
 		get_file(new->vm_file);
@@ -2711,8 +2730,11 @@ int __split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 int split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 	      unsigned long addr, int new_below)
 {
-	if (mm->map_count >= sysctl_max_map_count)
+	//printk("mm/mmap.c: split_vma: entered function\n");
+	if (mm->map_count >= sysctl_max_map_count) {
+		printk("mm/mmap.c: split_vma: mm->map_count >= sysctl_max_map_count\n");
 		return -ENOMEM;
+	}
 
 	return __split_vma(mm, vma, addr, new_below);
 }
@@ -2728,12 +2750,16 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 	unsigned long end;
 	struct vm_area_struct *vma, *prev, *last;
 
-	if ((offset_in_page(start)) || start > TASK_SIZE || len > TASK_SIZE-start)
+	if ((offset_in_page(start)) || start > TASK_SIZE || len > TASK_SIZE-start) {
+		printk("mm/mmap.c: __do_munmap: offset_in_page(start) || start > TASK_SIZE || len > TASK_SIZE - start\n");
 		return -EINVAL;
+	}
 
 	len = PAGE_ALIGN(len);
-	if (len == 0)
+	if (len == 0) {
+		printk("mm/mmap.c: __do_munmap: len == 0\n");
 		return -EINVAL;
+	}
 
 	/* Find the first overlapping VMA */
 	vma = find_vma(mm, start);
@@ -2762,12 +2788,16 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 		 * not exceed its limit; but let map_count go just above
 		 * its limit temporarily, to help free resources as expected.
 		 */
-		if (end < vma->vm_end && mm->map_count >= sysctl_max_map_count)
+		if (end < vma->vm_end && mm->map_count >= sysctl_max_map_count) {
+			printk("mm/mmap.c: __do_munmap: end < vma->vm_end && mm->map_count >= sysctl_max_map_count\n");
 			return -ENOMEM;
+		}
 
 		error = __split_vma(mm, vma, start, 0);
-		if (error)
+		if (error) {
+			printk("mm/mmap.c: __do_munmap: __split_vma(mm, vma, start, 0)\n");
 			return error;
+		}
 		prev = vma;
 	}
 
@@ -2775,8 +2805,10 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 	last = find_vma(mm, end);
 	if (last && end > last->vm_start) {
 		int error = __split_vma(mm, last, end, 1);
-		if (error)
+		if (error) {
+			printk("mm/mmap.c: __do_munmap: __split_vma(mm, last, end, 1)\n");
 			return error;
+		}
 	}
 	vma = prev ? prev->vm_next : mm->mmap;
 
@@ -2791,8 +2823,10 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 		 * failure that it's not worth optimizing it for.
 		 */
 		int error = userfaultfd_unmap_prep(vma, start, end, uf);
-		if (error)
+		if (error) {
+			printk("mm/mmap.c: __do_munmap: userfaultfd_unmap_prep(vma, start, end, uf)\n");
 			return error;
+		}
 	}
 
 	/*

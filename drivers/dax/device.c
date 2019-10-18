@@ -346,8 +346,10 @@ static int dev_dax_split(struct vm_area_struct *vma, unsigned long addr)
 	struct dev_dax *dev_dax = filp->private_data;
 	struct dax_region *dax_region = dev_dax->region;
 
-	if (!IS_ALIGNED(addr, dax_region->align))
+	if (!IS_ALIGNED(addr, dax_region->align)) {
+		printk("drivers/dax/device.c: dev_dax_split: !IS_ALIGNED(%lx, %u))\n", addr, dax_region->align);
 		return -EINVAL;
+	}
 	return 0;
 }
 
