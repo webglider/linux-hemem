@@ -493,18 +493,18 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 		must_wait = userfaultfd_huge_must_wait(ctx, vmf->vma,
 						       vmf->address,
 						       vmf->flags, reason);
-		printk("fs/userfaultfd.c: handle_userfault: vma_is_dax(vmf->vma) [must_wait: %d]\n", must_wait);
+		//printk("fs/userfaultfd.c: handle_userfault: vma_is_dax(vmf->vma) [must_wait: %d]\n", must_wait);
 	}
 	else if (!is_vm_hugetlb_page(vmf->vma)) {
 		must_wait = userfaultfd_must_wait(ctx, vmf->address, vmf->flags,
 						  reason);
-		printk("fs/userfaultfd.c: handle_userfault: !is_vm_hugetlb_page(vmf->vma) [must_wait: %d]\n", must_wait);
+		//printk("fs/userfaultfd.c: handle_userfault: !is_vm_hugetlb_page(vmf->vma) [must_wait: %d]\n", must_wait);
 	}
 	else {
 		must_wait = userfaultfd_huge_must_wait(ctx, vmf->vma,
 						       vmf->address,
 						       vmf->flags, reason);
-		printk("fs/userfaultfd.c: handle_userfault: is_vm_hugetlb_page(vmf->vma) [must_wait: %d]\n", must_wait);
+		//printk("fs/userfaultfd.c: handle_userfault: is_vm_hugetlb_page(vmf->vma) [must_wait: %d]\n", must_wait);
 
 	}
 	up_read(&mm->mmap_sem);
@@ -516,7 +516,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 		schedule();
 		ret |= VM_FAULT_MAJOR;
 
-		printk("fs/userfaultfd.c: handle_userfault: must_wait && !READ_ONCE(ctx->released)...\n");
+		//printk("fs/userfaultfd.c: handle_userfault: must_wait && !READ_ONCE(ctx->released)...\n");
 
 		/*
 		 * False wakeups can orginate even from rwsem before

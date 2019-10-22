@@ -52,7 +52,7 @@ static int check_vma(struct dev_dax *dev_dax, struct vm_area_struct *vma,
 {
 	struct dax_region *dax_region = dev_dax->region;
 	struct device *dev = &dev_dax->dev;
-	unsigned long mask;
+	unsigned long mask, mask2;
 
 	if (!dax_alive(dev_dax->dax_dev))
 		return -ENXIO;
@@ -66,7 +66,8 @@ static int check_vma(struct dev_dax *dev_dax, struct vm_area_struct *vma,
 	}
 
 	mask = dax_region->align - 1;
-	if (vma->vm_start & mask || vma->vm_end & mask) {
+	mask2 = (unsigned int)4096 - 1;
+	if ((vma->vm_start & mask || vma->vm_end & mask) && (vma->vm_start & mask2 || vma->vm_end & mask2)) {
 		dev_info_ratelimited(dev,
 				"%s: %s: fail, unaligned vma (%#lx - %#lx, %#lx)\n",
 				current->comm, func, vma->vm_start, vma->vm_end,
@@ -346,7 +347,7 @@ static int dev_dax_split(struct vm_area_struct *vma, unsigned long addr)
 	struct dev_dax *dev_dax = filp->private_data;
 	struct dax_region *dax_region = dev_dax->region;
 
-	if (!IS_ALIGNED(addr, dax_region->align)) {
+	if (!(IS_ALIGNED(addr, dax_region->align) || IS_ALIGNED(addr, (unsigned int)4096))) {
 		printk("drivers/dax/device.c: dev_dax_split: !IS_ALIGNED(%lx, %u))\n", addr, dax_region->align);
 		return -EINVAL;
 	}
