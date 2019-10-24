@@ -1270,18 +1270,30 @@ static __always_inline int validate_range(struct mm_struct *mm,
 {
 	__u64 task_size = mm->task_size;
 
-	if (start & ~PAGE_MASK)
+	if (start & ~PAGE_MASK) {
+		printk("fs/userfaultfd.c: validate_range: start & ~PAGE_MASK [%lu]\n", ~PAGE_MASK);
 		return -EINVAL;
-	if (len & ~PAGE_MASK)
+	}
+	if (len & ~PAGE_MASK) {
+		printk("fs/userfaultfd.c: validate_range: len & ~PAGE_MASK [%lu]\n", ~PAGE_MASK);
 		return -EINVAL;
-	if (!len)
+	}
+	if (!len) {
+		printk("fs/userfaultfd.c: validate_range: !len\n");
 		return -EINVAL;
-	if (start < mmap_min_addr)
+	}
+	if (start < mmap_min_addr) {
+		printk("fs/userfaultfd.c: validate_range: start < mmap_min_addr\n");
 		return -EINVAL;
-	if (start >= task_size)
+	}
+	if (start >= task_size) {
+		printk("fs/userfaultfd.c: validate_range: start >= task_size\n");
 		return -EINVAL;
-	if (len > task_size - start)
+	}
+	if (len > task_size - start) {
+		printk("fs/userfaultfd.c: validate_range: len > task_size - start\n");
 		return -EINVAL;
+	}
 	return 0;
 }
 
