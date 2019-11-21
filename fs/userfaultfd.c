@@ -32,7 +32,7 @@
 
 static struct kmem_cache *userfaultfd_ctx_cachep __read_mostly;
 
-extern void dump_pagetable(unsigned long address);
+extern unsigned long dump_pagetable(unsigned long address);
 
 enum userfaultfd_state {
 	UFFD_STATE_WAIT_API,
@@ -1320,6 +1320,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 	unsigned long start, end, vma_end;
 	int uffd_vma_ctx_null;
         pgd_t *tmp_pgd;
+	unsigned long hw_pgd;
 		
 	user_uffdio_register = (struct uffdio_register __user *) arg;
 
@@ -1569,7 +1570,10 @@ out_unlock:
 			ret = -EFAULT;
 
 		//printk("fs/userfaultfd: userfaultfd_register: register va: %016llX\n", uffdio_register.range.start);
-		dump_pagetable(uffdio_register.range.start);
+		hw_pgd = dump_pagetable(uffdio_register.range.start);
+
+		if (put_user(hw_pgd, &user_uffdio_register->pgd))
+			ret = -EFAULT;
 
 		tmp_pgd = prev->vm_mm->pgd;
 	//	printk("fs/userfaultfd.c: userfaultfd_register: pgd: %llX\t*pgd:%llX\n", tmp_pgd, *tmp_pgd);
@@ -1758,6 +1762,8 @@ static int userfaultfd_wake(struct userfaultfd_ctx *ctx,
 
 	wake_userfault(ctx, &range);
 	ret = 0;
+
+	dump_pagetable(range.start);
 
 out:
 	return ret;

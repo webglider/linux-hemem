@@ -63,21 +63,23 @@ static inline int valid_mmap_phys_addr_range(unsigned long pfn, size_t size)
 #ifdef CONFIG_STRICT_DEVMEM
 static inline int page_is_allowed(unsigned long pfn)
 {
-	return devmem_is_allowed(pfn);
+	return 1;
+	//return devmem_is_allowed(pfn);
 }
 static inline int range_is_allowed(unsigned long pfn, unsigned long size)
 {
-	u64 from = ((u64)pfn) << PAGE_SHIFT;
-	u64 to = from + size;
-	u64 cursor = from;
-
-	while (cursor < to) {
-		if (!devmem_is_allowed(pfn))
-			return 0;
-		cursor += PAGE_SIZE;
-		pfn++;
-	}
 	return 1;
+	//u64 from = ((u64)pfn) << PAGE_SHIFT;
+	//u64 to = from + size;
+	//u64 cursor = from;
+
+	//while (cursor < to) {
+		//if (!devmem_is_allowed(pfn))
+			//return 0;
+		//cursor += PAGE_SIZE;
+		//pfn++;
+	//}
+	//return 1;
 }
 #else
 static inline int page_is_allowed(unsigned long pfn)
@@ -357,29 +359,42 @@ static const struct vm_operations_struct mmap_mem_ops = {
 
 static int mmap_mem(struct file *file, struct vm_area_struct *vma)
 {
+	//printk("drivers/char/mem.c: mmap_mem entered\n");
 	size_t size = vma->vm_end - vma->vm_start;
 	phys_addr_t offset = (phys_addr_t)vma->vm_pgoff << PAGE_SHIFT;
 
 	/* Does it even fit in phys_addr_t? */
-	if (offset >> PAGE_SHIFT != vma->vm_pgoff)
+	if (offset >> PAGE_SHIFT != vma->vm_pgoff) {
+		printk("drivers/char/mem.c: mmap_mem: offset >> PAGE_SHIFT !+ vma->vm_pgoff\n");
 		return -EINVAL;
+	}
 
 	/* It's illegal to wrap around the end of the physical address space. */
-	if (offset + (phys_addr_t)size - 1 < offset)
+	if (offset + (phys_addr_t)size - 1 < offset) {
+		printk("drivers/char/mem.c: mmap_mem: offset + (phys_addr_t)size -1 < offset\n");
 		return -EINVAL;
+	}
 
-	if (!valid_mmap_phys_addr_range(vma->vm_pgoff, size))
+	if (!valid_mmap_phys_addr_range(vma->vm_pgoff, size)) {
+		printk("drivers/char/mem.c: mmap_mem: !valid_mmap_phys_addr_range(vma->vm_pgoff, size)\n");
 		return -EINVAL;
+	}
 
-	if (!private_mapping_ok(vma))
+	if (!private_mapping_ok(vma)) {
+		printk("drivers/char/mem.c: mmap_mem: !private_mapping_ok(vma)\n");
 		return -ENOSYS;
+	}
 
-	if (!range_is_allowed(vma->vm_pgoff, size))
+	if (!range_is_allowed(vma->vm_pgoff, size)) {
+		printk("drivers/char/mem.c: mmap_mem: !range_is_allowed(vma->vm_pgoff, size)\n");
 		return -EPERM;
+	}
 
 	if (!phys_mem_access_prot_allowed(file, vma->vm_pgoff, size,
-						&vma->vm_page_prot))
+						&vma->vm_page_prot)) {
+		printk("drivers/char/mem.c: mmap_mem: !phys_mem_access_prot_allowed\n");
 		return -EINVAL;
+	}
 
 	vma->vm_page_prot = phys_mem_access_prot(file, vma->vm_pgoff,
 						 size,

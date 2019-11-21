@@ -202,6 +202,8 @@ struct uffdio_register {
 	 * range, keep at the end as the last 8 bytes aren't read.
 	 */
 	__u64 ioctls;
+
+	__u64 pgd;
 };
 
 struct uffdio_copy {

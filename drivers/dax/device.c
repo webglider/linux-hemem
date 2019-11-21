@@ -147,7 +147,7 @@ static vm_fault_t __dev_dax_pte_fault(struct dev_dax *dev_dax,
 	phys = dax_pgoff_to_phys(dev_dax, vmf->pgoff, PAGE_SIZE);
 	if (phys == -1) {
 		dev_dbg(dev, "pgoff_to_phys(%#lx) failed\n", vmf->pgoff);
-		printk("drivers/dax/device.c: __dev_dax_pte_fault: dax_pgoff_to_phys(dev_dax, vmf->pgoff, PAGE_SIZE) == -1\n");
+		//printk("drivers/dax/device.c: __dev_dax_pte_fault: dax_pgoff_to_phys(dev_dax, vmf->pgoff, PAGE_SIZE) == -1\n");
 		return VM_FAULT_SIGBUS;
 	}
 
