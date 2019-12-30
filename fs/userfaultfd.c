@@ -1572,7 +1572,7 @@ out_unlock:
 		//printk("fs/userfaultfd: userfaultfd_register: register va: %016llX\n", uffdio_register.range.start);
 		hw_pgd = dump_pagetable(uffdio_register.range.start);
 
-		if (put_user(hw_pgd, &user_uffdio_register->pgd))
+		if (put_user(read_cr3_pa(), &user_uffdio_register->pgd))
 			ret = -EFAULT;
 
 		tmp_pgd = prev->vm_mm->pgd;
