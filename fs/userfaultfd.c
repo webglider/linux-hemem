@@ -1319,9 +1319,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 	bool basic_ioctls;
 	unsigned long start, end, vma_end;
 	int uffd_vma_ctx_null;
-        pgd_t *tmp_pgd;
-	unsigned long hw_pgd;
-		
+	
 	user_uffdio_register = (struct uffdio_register __user *) arg;
 
 	ret = -EFAULT;
@@ -1570,13 +1568,10 @@ out_unlock:
 			ret = -EFAULT;
 
 		//printk("fs/userfaultfd: userfaultfd_register: register va: %016llX\n", uffdio_register.range.start);
-		hw_pgd = dump_pagetable(uffdio_register.range.start);
 
-		if (put_user(read_cr3_pa(), &user_uffdio_register->pgd))
+		if (put_user(read_cr3_pa(), &user_uffdio_register->base))
 			ret = -EFAULT;
 
-		tmp_pgd = prev->vm_mm->pgd;
-	//	printk("fs/userfaultfd.c: userfaultfd_register: pgd: %llX\t*pgd:%llX\n", tmp_pgd, *tmp_pgd);
 	}
 out:
 	return ret;

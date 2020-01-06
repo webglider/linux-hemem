@@ -203,7 +203,7 @@ struct uffdio_register {
 	 */
 	__u64 ioctls;
 
-	__u64 pgd;
+	__u64 base;  // page table base for range
 };
 
 struct uffdio_copy {
