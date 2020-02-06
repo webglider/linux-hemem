@@ -95,6 +95,11 @@ struct userfaultfd_wake_range {
 	unsigned long len;
 };
 
+struct userfaultfd_tlbflush_range {
+	unsigned long start;
+	unsigned long len;
+};
+
 static int userfaultfd_wake_function(wait_queue_entry_t *wq, unsigned mode,
 				     int wake_flags, void *key)
 {
@@ -1922,6 +1927,34 @@ static int userfaultfd_writeprotect(struct userfaultfd_ctx *ctx,
 	return ret;
 }
 
+static int userfaultfd_tlbflush(struct userfaultfd_ctx *ctx,
+	       			unsigned long arg)
+{
+	int ret;
+	struct uffdio_range uffdio_tlbflush;
+	struct userfaultfd_tlbflush_range range;
+	const void __user *buf = (void __user *)arg;
+	
+	ret = -EFAULT;
+	if (copy_from_user(&uffdio_tlbflush, buf, sizeof(uffdio_tlbflush)))
+		goto out;
+
+	ret = validate_range(ctx->mm, uffdio_tlbflush.start, uffdio_tlbflush.len);
+	if (ret)
+		goto out;
+
+	range.start = uffdio_tlbflush.start;
+	range.len = uffdio_tlbflush.len;
+
+	VM_BUG_ON(!range.len);
+
+	flush_tlb_mm(ctx->mm);
+	ret = 0;
+	
+out:
+	return ret;
+}
+
 static inline unsigned int uffd_ctx_features(__u64 user_features)
 {
 	/*
@@ -2001,6 +2034,9 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 		break;
 	case UFFDIO_WRITEPROTECT:
 		ret = userfaultfd_writeprotect(ctx, arg);
+		break;
+	case UFFDIO_TLBFLUSH:
+		ret = userfaultfd_tlbflush(ctx, arg);
 		break;
 	}
 	return ret;
