@@ -37,7 +37,7 @@ static struct vm_area_struct *vma_find_uffd(struct mm_struct *mm,
 	}
 
 	printk("mm/userfaultfd.c: vma_find_uffd: start: 0x%lx\tlen: %ld\n", start, len);
-  printk("mm/userfaultfd.c: vma_find_uffd: found: 0x%lx - 0x%lx\tlen: %ld\n", vma->vm_start, vma->vm_end, (vma->vm_end - vma->vm_start));
+  printk("mm/userfaultfd.c: vma_find_uffd: found vma 0x%p: 0x%lx - 0x%lx\tlen: %ld\n", vma, vma->vm_start, vma->vm_end, (vma->vm_end - vma->vm_start));
   /*
 	 * Check the vma is registered in uffd, this is required to
 	 * enforce the VM_MAYWRITE check done at uffd registration

@@ -1528,7 +1528,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		 */
 		vma->vm_flags = new_flags;
 		vma->vm_userfaultfd_ctx.ctx = ctx;
-    printk("fs/userfaultfd.c: userfaultfd_register: registered vma: 0x%lx - 0x%lx\tlength: %ld\n", vma->vm_start, vma->vm_end, (vma->vm_end - vma->vm_start));
+    printk("fs/userfaultfd.c: userfaultfd_register: registered vma 0x%p: 0x%lx - 0x%lx\tlength: %ld\n", vma, vma->vm_start, vma->vm_end, (vma->vm_end - vma->vm_start));
   skip:
 		prev = vma;
 		start = vma->vm_end;
@@ -1558,10 +1558,6 @@ out_unlock:
 		 */
 		if (put_user(ioctls_out, &user_uffdio_register->ioctls))
 			ret = -EFAULT;
-
-		if (put_user(read_cr3_pa(), &user_uffdio_register->base))
-			ret = -EFAULT;
-
 	}
 out:
 	return ret;
@@ -1940,6 +1936,35 @@ out:
 	return ret;
 }
 
+static int userfaultfd_base(struct userfaultfd_ctx *ctx,
+              unsigned long arg)
+{
+  int ret;
+  struct uffdio_base uffdio_base;
+  struct uffdio_base __user *user_uffdio_base;
+
+  user_uffdio_base = (struct uffdio_base __user *)arg;
+
+  ret = -EFAULT;
+  if (copy_from_user(&uffdio_base, user_uffdio_base, sizeof(uffdio_base)))
+    goto out;
+
+  ret = validate_range(ctx->mm, uffdio_base.range.start, uffdio_base.range.len);
+  if (ret)
+    goto out;
+
+
+  if (put_user(read_cr3_pa(), &user_uffdio_base->base)) {
+    ret = -EFAULT;
+    goto out;
+  }
+
+  ret = 0;
+
+out:
+  return ret;
+}
+
 static inline unsigned int uffd_ctx_features(__u64 user_features)
 {
 	/*
@@ -2023,6 +2048,9 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 	case UFFDIO_TLBFLUSH:
 		ret = userfaultfd_tlbflush(ctx, arg);
 		break;
+  case UFFDIO_BASE:
+    ret = userfaultfd_base(ctx, arg);
+    break;
 	}
 	return ret;
 }
