@@ -1326,6 +1326,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 	
 	user_uffdio_register = (struct uffdio_register __user *) arg;
 
+  printk("fs/userfaultfd.c: userfaultfd_register: mm_struct: 0x%p\n", mm);
 	ret = -EFAULT;
 	if (copy_from_user(&uffdio_register, user_uffdio_register,
 			   sizeof(uffdio_register)-sizeof(__u64))) {
@@ -1403,6 +1404,8 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		BUG_ON(!!cur->vm_userfaultfd_ctx.ctx ^
 		       !!(cur->vm_flags & (VM_UFFD_MISSING | VM_UFFD_WP)));
 
+    printk("fs/userfaultfd.c: userfaultfd_register: searching vma 0x%p: start: 0x%lx end: 0x%lx length: %lu\n", cur, cur->vm_start, cur->vm_end, (cur->vm_end - cur->vm_start));
+
 		/* check not compatible vmas */
 		ret = -EINVAL;
 		if (!vma_can_userfault(cur, vm_flags)) {
@@ -1479,6 +1482,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		       vma->vm_userfaultfd_ctx.ctx != ctx);
 		WARN_ON(!(vma->vm_flags & VM_MAYWRITE));
 
+    printk("fs/userfaultfd.c: userfaultfd_register: checking vma 0x%p: start: 0x%lx end: 0x%lx length: %lu\n", vma, vma->vm_start, vma->vm_end, (vma->vm_end - vma->vm_start));
 		/*
 		 * Nothing to do: this vma is already registered into this
 		 * userfaultfd and with the right tracking mode too.
@@ -1493,14 +1497,15 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 			start = vma->vm_start;
 		vma_end = min(end, vma->vm_end);
 
-		new_flags = (vma->vm_flags & ~vm_flags) | vm_flags;
+		new_flags = (vma->vm_flags & 
+                 ~(VM_UFFD_MISSING|VM_UFFD_WP)) | vm_flags;
 		prev = vma_merge(mm, prev, start, vma_end, new_flags,
 				 vma->anon_vma, vma->vm_file, vma->vm_pgoff,
 				 vma_policy(vma),
 				 ((struct vm_userfaultfd_ctx){ ctx }));
 		if (prev) {
 			vma = prev;
-			//printk("fs/userfaultfd.c: userfaultfd_register: vma prev\n");
+			printk("fs/userfaultfd.c: userfaultfd_register: vma prev\n");
 			goto next;
 		}
 		if (vma->vm_start < start) {
@@ -2025,30 +2030,39 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 
 	switch(cmd) {
 	case UFFDIO_API:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_API: %u\n", cmd);
 		ret = userfaultfd_api(ctx, arg);
 		break;
 	case UFFDIO_REGISTER:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_REGISTER: %u\n", cmd);
 		ret = userfaultfd_register(ctx, arg);
 		break;
 	case UFFDIO_UNREGISTER:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_UNREGISTER: %u\n", cmd);
 		ret = userfaultfd_unregister(ctx, arg);
 		break;
 	case UFFDIO_WAKE:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_WAKE: %u\n", cmd);
 		ret = userfaultfd_wake(ctx, arg);
 		break;
 	case UFFDIO_COPY:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_COPY: %u\n", cmd);
 		ret = userfaultfd_copy(ctx, arg);
 		break;
 	case UFFDIO_ZEROPAGE:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_ZEROPAGE: %u\n", cmd);
 		ret = userfaultfd_zeropage(ctx, arg);
 		break;
 	case UFFDIO_WRITEPROTECT:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_WRITEPROTECT: %u\n", cmd);
 		ret = userfaultfd_writeprotect(ctx, arg);
 		break;
 	case UFFDIO_TLBFLUSH:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_TLBFLUSH: %u\n", cmd);
 		ret = userfaultfd_tlbflush(ctx, arg);
 		break;
   case UFFDIO_BASE:
+    printk("fs/userfaultfd: userfaultfd_ioctl: UFFDIO_BASE: %u\n", cmd);
     ret = userfaultfd_base(ctx, arg);
     break;
 	}
