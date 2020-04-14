@@ -41,7 +41,7 @@
 	((__u64)1 << _UFFDIO_WAKE |		\
 	 (__u64)1 << _UFFDIO_COPY |		\
 	 (__u64)1 << _UFFDIO_TLBFLUSH | \
-   (__u64)1 << _UFFDIO_BASE )
+   (__u64)1 << _UFFDIO_CR3 )
 
 /*
  * Valid ioctl command number range with this API is from 0x00 to
@@ -59,7 +59,7 @@
 #define _UFFDIO_WRITEPROTECT		(0x06)
 #define _UFFDIO_API			(0x3F)
 #define _UFFDIO_TLBFLUSH		(0x08)
-#define _UFFDIO_BASE        (0x0a)
+#define _UFFDIO_CR3        (0x0a)
 
 /* userfaultfd ioctl ids */
 #define UFFDIO 0xAA
@@ -79,8 +79,8 @@
 				      struct uffdio_writeprotect)
 #define UFFDIO_TLBFLUSH		_IOR(UFFDIO, _UFFDIO_TLBFLUSH,	\
 				      struct uffdio_range)
-#define UFFDIO_BASE       _IOR(UFFDIO, _UFFDIO_BASE,      \
-              struct uffdio_base)
+#define UFFDIO_CR3       _IOR(UFFDIO, _UFFDIO_CR3,      \
+              struct uffdio_cr3)
 
 /* read() structure */
 struct uffd_msg {
@@ -265,9 +265,9 @@ struct uffdio_writeprotect {
 	__u64 mode;
 };
 
-struct uffdio_base {
-  struct uffdio_range range;
-  __u64 base;       // base page table ptr
+struct uffdio_cr3 {
+  //struct uffdio_range range;
+  __u64 cr3;       // base page table ptr
 };
 
 #endif /* _LINUX_USERFAULTFD_H */

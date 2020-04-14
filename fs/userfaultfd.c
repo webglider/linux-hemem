@@ -1936,25 +1936,20 @@ out:
 	return ret;
 }
 
-static int userfaultfd_base(struct userfaultfd_ctx *ctx,
+static int userfaultfd_cr3(struct userfaultfd_ctx *ctx,
               unsigned long arg)
 {
   int ret;
-  struct uffdio_base uffdio_base;
-  struct uffdio_base __user *user_uffdio_base;
+  struct uffdio_cr3 uffdio_cr3;
+  struct uffdio_cr3 __user *user_uffdio_cr3;
 
-  user_uffdio_base = (struct uffdio_base __user *)arg;
+  user_uffdio_cr3 = (struct uffdio_cr3 __user *)arg;
 
   ret = -EFAULT;
-  if (copy_from_user(&uffdio_base, user_uffdio_base, sizeof(uffdio_base)))
+  if (copy_from_user(&uffdio_cr3, user_uffdio_cr3, sizeof(uffdio_cr3)))
     goto out;
 
-  ret = validate_range(ctx->mm, uffdio_base.range.start, uffdio_base.range.len);
-  if (ret)
-    goto out;
-
-
-  if (put_user(read_cr3_pa(), &user_uffdio_base->base)) {
+  if (put_user(read_cr3_pa(), &user_uffdio_cr3->cr3)) {
     ret = -EFAULT;
     goto out;
   }
@@ -2048,8 +2043,8 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 	case UFFDIO_TLBFLUSH:
 		ret = userfaultfd_tlbflush(ctx, arg);
 		break;
-  case UFFDIO_BASE:
-    ret = userfaultfd_base(ctx, arg);
+  case UFFDIO_CR3:
+    ret = userfaultfd_cr3(ctx, arg);
     break;
 	}
 	return ret;
