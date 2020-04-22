@@ -2514,9 +2514,9 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 	//printk("mm/memory.c: do_wp_page()\n");
 
 	if (userfaultfd_pte_wp(vma, *vmf->pte)) {
-		printk("mm/memory.c: do_wp_page(): userfaultfd_pte_wp(vma, *vmf->pte)\n");
+		//printk("mm/memory.c: do_wp_page(): userfaultfd_pte_wp(vma, *vmf->pte)\n");
 	        tmp_pgd	= vmf->vma->vm_mm->pgd;
-		printk("mm/memory.c: do_wp_page(): pgd: 0x%llx\t *pgd: 0x%llx\n", tmp_pgd, *tmp_pgd);
+		//printk("mm/memory.c: do_wp_page(): pgd: 0x%llx\t *pgd: 0x%llx\n", tmp_pgd, *tmp_pgd);
 		pte_unmap_unlock(vmf->pte, vmf->ptl);
 		return handle_userfault(vmf, VM_UFFD_WP);
 	}

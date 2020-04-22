@@ -1912,10 +1912,10 @@ static int userfaultfd_tlbflush(struct userfaultfd_ctx *ctx,
 	       			unsigned long arg)
 {
 	int ret;
-	struct uffdio_range uffdio_tlbflush;
+/*struct uffdio_range uffdio_tlbflush;
 	struct userfaultfd_tlbflush_range range;
 	const void __user *buf = (void __user *)arg;
-	
+
 	ret = -EFAULT;
 	if (copy_from_user(&uffdio_tlbflush, buf, sizeof(uffdio_tlbflush)))
 		goto out;
@@ -1928,7 +1928,7 @@ static int userfaultfd_tlbflush(struct userfaultfd_ctx *ctx,
 	range.len = uffdio_tlbflush.len;
 
 	VM_BUG_ON(!range.len);
-
+*/
 	flush_tlb_mm(ctx->mm);
 	ret = 0;
 	

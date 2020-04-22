@@ -1984,7 +1984,7 @@ int change_huge_pmd(struct vm_area_struct *vma, pmd_t *pmd,
 	if (preserve_write)
 		entry = pmd_mk_savedwrite(entry);
 	if (uffd_wp) {
-		printk("mm/huge_memory.c: change_huge_pmd: uffd_wp\n");
+		//printk("mm/huge_memory.c: change_huge_pmd: uffd_wp\n");
 		entry = pmd_wrprotect(entry);
 		entry = pmd_mkuffd_wp(entry);
 	} else if (uffd_wp_resolve) {

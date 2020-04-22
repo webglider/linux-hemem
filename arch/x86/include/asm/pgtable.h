@@ -302,7 +302,7 @@ static inline int pte_uffd_wp(pte_t pte)
 
 static inline pte_t pte_mkuffd_wp(pte_t pte)
 {
-	printk("arch/x86/include/asm/pgtable.h: pte_mkuffd_wp\n");
+//	printk("arch/x86/include/asm/pgtable.h: pte_mkuffd_wp\n");
 	return pte_set_flags(pte, _PAGE_UFFD_WP);
 }
 
@@ -399,7 +399,7 @@ static inline int pmd_uffd_wp(pmd_t pmd)
 
 static inline pmd_t pmd_mkuffd_wp(pmd_t pmd)
 {
-	printk("arch/x86/include/asm/pgtable.h: pmd_mkuffd_wp\n");
+//	printk("arch/x86/include/asm/pgtable.h: pmd_mkuffd_wp\n");
 	return pmd_set_flags(pmd, _PAGE_UFFD_WP);
 }
 
