@@ -2507,16 +2507,11 @@ static vm_fault_t wp_page_shared(struct vm_fault *vmf)
 static vm_fault_t do_wp_page(struct vm_fault *vmf)
 	__releases(vmf->ptl)
 {
-	pgd_t *tmp_pgd;
-	
 	struct vm_area_struct *vma = vmf->vma;
 
 	//printk("mm/memory.c: do_wp_page()\n");
 
 	if (userfaultfd_pte_wp(vma, *vmf->pte)) {
-		printk("mm/memory.c: do_wp_page(): userfaultfd_pte_wp(vma, *vmf->pte)\n");
-	        tmp_pgd	= vmf->vma->vm_mm->pgd;
-		printk("mm/memory.c: do_wp_page(): pgd: 0x%llx\t *pgd: 0x%llx\n", tmp_pgd, *tmp_pgd);
 		pte_unmap_unlock(vmf->pte, vmf->ptl);
 		return handle_userfault(vmf, VM_UFFD_WP);
 	}
@@ -3749,20 +3744,14 @@ static inline vm_fault_t create_huge_pmd(struct vm_fault *vmf)
 /* `inline' is required to avoid gcc 4.1.2 build error */
 static inline vm_fault_t wp_huge_pmd(struct vm_fault *vmf, pmd_t orig_pmd)
 {
-	pgd_t *tmp_pgd;
-	
 	if (vma_is_anonymous(vmf->vma)) {
 		if (userfaultfd_huge_pmd_wp(vmf->vma, orig_pmd)) {
-			printk("mm/memory.c: wp_huge_pmd: userfault_huge_pmd_wp(vmf->vma, orig_pmd)\n");
 			return handle_userfault(vmf, VM_UFFD_WP);
 		}
 		return do_huge_pmd_wp_page(vmf, orig_pmd);
 	}
 	if (vma_is_dax(vmf->vma)) {
 		if (userfaultfd_huge_pmd_wp(vmf->vma, orig_pmd)) {
-			printk("mm/memory.c: wp_huge_pmd: userfault_huge_pmd_wp dax\n");
-		        tmp_pgd	= vmf->vma->vm_mm->pgd;
-			printk("mm/memory.c: wp_huge_pmd: pgd: 0x%llx\t *pgd: 0x%llx\n", tmp_pgd, *tmp_pgd);
 			return handle_userfault(vmf, VM_UFFD_WP);
 		}
 	}

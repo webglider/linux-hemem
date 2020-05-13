@@ -41,7 +41,9 @@
 	((__u64)1 << _UFFDIO_WAKE |		\
 	 (__u64)1 << _UFFDIO_COPY |		\
 	 (__u64)1 << _UFFDIO_TLBFLUSH | \
-   (__u64)1 << _UFFDIO_CR3 )
+   (__u64)1 << _UFFDIO_CR3      | \
+   (__u64)1 << _UFFDIO_GET_FLAG | \
+   (__u64)1 << _UFFDIO_CLEAR_FLAG)
 
 /*
  * Valid ioctl command number range with this API is from 0x00 to
@@ -60,6 +62,8 @@
 #define _UFFDIO_API			(0x3F)
 #define _UFFDIO_TLBFLUSH		(0x08)
 #define _UFFDIO_CR3        (0x0a)
+#define _UFFDIO_GET_FLAG  (0x0b)
+#define _UFFDIO_CLEAR_FLAG  (0x0c)
 
 /* userfaultfd ioctl ids */
 #define UFFDIO 0xAA
@@ -81,6 +85,10 @@
 				      struct uffdio_range)
 #define UFFDIO_CR3       _IOR(UFFDIO, _UFFDIO_CR3,      \
               struct uffdio_cr3)
+#define UFFDIO_GET_FLAG   _IOWR(UFFDIO, _UFFDIO_GET_FLAG, \
+              struct uffdio_page_flags)
+#define UFFDIO_CLEAR_FLAG   _IOWR(UFFDIO, _UFFDIO_CLEAR_FLAG, \
+              struct uffdio_page_flags)
 
 /* read() structure */
 struct uffd_msg {
@@ -268,6 +276,12 @@ struct uffdio_writeprotect {
 struct uffdio_cr3 {
   //struct uffdio_range range;
   __u64 cr3;       // base page table ptr
+};
+
+struct uffdio_page_flags {
+  __u64 va;     // virtual address
+  __u64 flag;   // the flag of interest
+  __u64 res;    // result of operation (flag value if get, success/fail if set)
 };
 
 #endif /* _LINUX_USERFAULTFD_H */

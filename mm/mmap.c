@@ -2757,7 +2757,6 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 
 	len = PAGE_ALIGN(len);
 	if (len == 0) {
-		printk("mm/mmap.c: __do_munmap: len == 0\n");
 		return -EINVAL;
 	}
 
