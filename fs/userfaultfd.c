@@ -2109,13 +2109,13 @@ static int userfaultfd_clear_flag(struct userfaultfd_ctx *ctx,
 		goto bad;
 
 	if (!pmd_present(*pmd)) {
-    *pmd = pmd_clear_flags(*pmd, flag);
-    ret = 1;
-		goto out;
+		ret = 0;
+    goto out;
   }
 
   if (pmd_large(*pmd)) {
-    ret = pmd_val(*pmd) & flag;
+    *pmd = pmd_clear_flags(*pmd, flag);
+    ret = 1;
     goto out;
   }
 
