@@ -512,6 +512,10 @@ int pmdp_set_access_flags(struct vm_area_struct *vma,
 {
 	int changed = !pmd_same(*pmdp, entry);
 
+    if (address & ~HPAGE_PMD_MASK) {
+        printk("arch/x86/mm/pgtable.c: pmdp_set_access_flags: address: 0x%lx\n", address);
+    }
+
 	VM_BUG_ON(address & ~HPAGE_PMD_MASK);
 
 	if (changed && dirty) {
