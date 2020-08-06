@@ -280,8 +280,10 @@ struct uffdio_cr3 {
 
 struct uffdio_page_flags {
   __u64 va;     // virtual address
-  __u64 flag;   // the flag of interest
-  __u64 res;    // result of operation (flag value if get, success/fail if set)
+  __u64 flag1;  // the first flag of interest
+  __u64 flag2;  // the second flag of interest
+  __u64 res1;   // result of operation (flag1 value if get, success/fail if set)
+  __u64 res2;   // result of operation (flag2 value)
 };
 
 #endif /* _LINUX_USERFAULTFD_H */

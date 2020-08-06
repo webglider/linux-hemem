@@ -1974,9 +1974,9 @@ static int userfaultfd_bad_address(void *p)
 static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
                      unsigned long arg)
 {
-  int ret = -1;
+  int ret1 = -1, ret2 = 0;
   unsigned long address;
-  unsigned long flag;
+  unsigned long flag1, flag2;
   struct uffdio_page_flags uffdio_page_flags;
   struct uffdio_page_flags __user *user_uffdio_page_flags;
 	pgd_t *base = __va(read_cr3_pa());
@@ -1994,14 +1994,15 @@ static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
   }
 
   address = uffdio_page_flags.va;
-  flag = uffdio_page_flags.flag;
+  flag1 = uffdio_page_flags.flag1;
+  flag2 = uffdio_page_flags.flag2;
 
   pgd = base + pgd_index(address);
 	if (userfaultfd_bad_address(pgd))
 		goto bad;
 
 	if (!pgd_present(*pgd)) {
-    ret = 0;
+    ret1 = 0;
 		goto out;
   }
 
@@ -2010,7 +2011,7 @@ static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
 		goto bad;
 
 	if (!p4d_present(*p4d) || p4d_large(*p4d)) {
-    ret = 0;
+    ret1 = 0;
 		goto out;
   }
 
@@ -2019,7 +2020,7 @@ static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
 		goto bad;
 
 	if (!pud_present(*pud) || pud_large(*pud)) {
-    ret = 0;
+    ret1 = 0;
 		goto out;
   }
 
@@ -2028,12 +2029,13 @@ static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
 		goto bad;
 
 	if (!pmd_present(*pmd)) {
-    ret = 0;
+    ret1 = 0;
 		goto out;
   }
 
   if (pmd_large(*pmd)) {
-    ret = pmd_flags(*pmd) & flag;
+    ret1 = pmd_flags(*pmd) & flag1;
+    ret2 = pmd_flags(*pmd) & flag2;
     goto out;
   }
 
@@ -2041,10 +2043,14 @@ static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
 	if (userfaultfd_bad_address(pte))
 		goto bad;
 
-  ret = pte_flags(*pte) & flag;
+  ret1 = pte_flags(*pte) & flag1;
+  ret2 = pte_flags(*pte) & flag2;
 
 out:
-  if (put_user(ret, &user_uffdio_page_flags->res)) {
+  if (put_user(ret1, &user_uffdio_page_flags->res1)) {
+    return -1;
+  }
+  if (put_user(ret2, &user_uffdio_page_flags->res2)) {
     return -1;
   }
 	return 0;
@@ -2057,7 +2063,7 @@ static int userfaultfd_clear_flag(struct userfaultfd_ctx *ctx,
 {
   int ret = -1;
   unsigned long address;
-  unsigned long flag;
+  unsigned long flag1, flag2;
   struct uffdio_page_flags uffdio_page_flags;
   struct uffdio_page_flags __user *user_uffdio_page_flags;
 	pgd_t *base = __va(read_cr3_pa());
@@ -2075,7 +2081,8 @@ static int userfaultfd_clear_flag(struct userfaultfd_ctx *ctx,
   }
 
   address = uffdio_page_flags.va;
-  flag = uffdio_page_flags.flag;
+  flag1 = uffdio_page_flags.flag1;
+  flag2 = uffdio_page_flags.flag2;
 
   pgd = base + pgd_index(address);
 	if (userfaultfd_bad_address(pgd))
@@ -2114,7 +2121,7 @@ static int userfaultfd_clear_flag(struct userfaultfd_ctx *ctx,
   }
 
   if (pmd_large(*pmd)) {
-    *pmd = pmd_clear_flags(*pmd, flag);
+    *pmd = pmd_clear_flags(*pmd, flag1 | flag2);
     ret = 1;
     goto out;
   }
@@ -2123,11 +2130,11 @@ static int userfaultfd_clear_flag(struct userfaultfd_ctx *ctx,
 	if (userfaultfd_bad_address(pte))
 		goto bad;
 
-  *pte = pte_clear_flags(*pte, flag);
+  *pte = pte_clear_flags(*pte, flag1 | flag2);
   ret = 1;
 
 out:
-  if (put_user(ret, &user_uffdio_page_flags->res)) {
+  if (put_user(ret, &user_uffdio_page_flags->res1)) {
     return -1;
   }
 	return 0;
