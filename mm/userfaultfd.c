@@ -18,7 +18,19 @@
 #include <linux/hugetlb.h>
 #include <linux/shmem_fs.h>
 #include <asm/tlbflush.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/device.h>
+#include <linux/cdev.h>
+#include <linux/wait.h>
+#include <linux/string.h>
+#include <linux/dma-mapping.h>
+#include <linux/slab.h>
+#include <linux/dmaengine.h>
 #include "internal.h"
+
+static volatile int dma_finished = 0;
+static DECLARE_WAIT_QUEUE_HEAD(wq);
 
 /*
  * Find a valid userfault enabled VMA region that covers the whole
@@ -638,12 +650,140 @@ out:
 	return copied ? copied : err;
 }
 
+static void tx_callback(void *dma_async_param)
+{
+	dma_finished = 1;
+	wake_up_interruptible(&wq);
+}
+
+static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
+					      struct userfaultfd_dma_copy* userfaultd_dma_copy,
+					      bool *mmap_changing)
+{
+	struct vm_area_struct *dst_vma;
+	ssize_t err;
+	long copied;
+	bool wp_copy;
+	unsigned long src_start;
+	unsigned long dst_start;
+	unsigned long len;
+	dma_addr_t src_phys;
+	dma_addr_t dst_phys;
+	struct dma_chan *chan = NULL;
+	dma_cap_mask mask;
+	struct dma_async_tx_descriptor *tx = NULL;
+	dma_cookie dma_cookie;
+
+	//TODO, for now only do one page
+	BUG_ON(usefaultfd_dma_copy == NULL);
+	dst_start = userfaultfd_dma_copy->dst;
+	src_start = userfaultfd_dma_copy->src;
+	len = userfaultfd_dma_copy->len;
+
+	/*
+	 * Sanitize the command parameters:
+	 */
+	BUG_ON(dst_start & ~PAGE_MASK);
+	BUG_ON(len & ~PAGE_MASK);
+
+	/* Does the address range wrap, or is the span zero-sized? */
+	BUG_ON(src_start + len <= src_start);
+	BUG_ON(dst_start + len <= dst_start);
+
+	copied = 0;
+	page = NULL;
+
+	dma_cap_zero(mask);
+	dma_cap_set(DMA_MEMCPY, mask);
+	chan = dma_request_channel(mask, NULL, NULL);
+	if (chan == NULL) {
+		printk("error when dma_request_channel\n");
+		goto out;
+	}
+retry:
+	down_read(&dst_mm->mmap_sem);
+
+	/*
+	 * If memory mappings are changing because of non-cooperative
+	 * operation (e.g. mremap) running in parallel, bail out and
+	 * request the user to retry later
+	 */
+	err = -EAGAIN;
+	if (mmap_changing && READ_ONCE(*mmap_changing))
+		goto out_unlock;
+
+	/*
+	 * Make sure the vma is not shared, that the dst range is
+	 * both valid and fully within a single existing vma.
+	 */
+	err = -ENOENT;
+	dst_vma = vma_find_uffd(dst_mm, dst_start, len);
+	if (!dst_vma)
+		goto out_unlock;
+
+	err = -EINVAL;
+	/*
+	 * shmem_zero_setup is invoked in mmap for MAP_ANONYMOUS|MAP_SHARED but
+	 * it will overwrite vm_ops, so vma_is_anonymous must return false.
+	 */
+	if (WARN_ON_ONCE(vma_is_anonymous(dst_vma) &&
+	    dst_vma->vm_flags & VM_SHARED))
+		goto out_unlock;
+
+	/*
+	 * validate 'mode' now that we know the dst_vma: don't allow
+	 * a wrprotect copy if the userfaultfd didn't register as WP.
+	 */
+	wp_copy = mode & UFFDIO_COPY_MODE_WP;
+	if (wp_copy && !(dst_vma->vm_flags & VM_UFFD_WP))
+		goto out_unlock;
+
+	//TODO from virtual addr to physical addr
+	src_phys = virt_to_phys(src_start);
+	dst_phys = virt_to_phys(dst_start);
+
+	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+	if (tx == NULL) {
+		printk("error when dmaengine_prep_dma_memcpy\n");
+		goto out;
+	}
+
+	tx->callback = tx_callback;
+	dma_cookie = dmaengine_submit(tx);
+	if (dma_submit_error(dma_cookie)) {
+		printk("Failed to do DMA tx_submit\n");
+	}
+
+	dma_async_issue_pending(chan);
+	wait_event_interruptible(wq, dma_finished);
+	copied += len;
+
+out_unlock:
+	up_read(&dst_mm->mmap_sem);
+out:
+	if (chan)
+		dma_release_channel(chan);
+	BUG_ON(copied < 0);
+	BUG_ON(err > 0);
+	BUG_ON(!copied && !err);
+	return copied ? copied : err;
+}
+
 ssize_t mcopy_atomic(struct mm_struct *dst_mm, unsigned long dst_start,
 		     unsigned long src_start, unsigned long len,
 		     bool *mmap_changing, __u64 mode)
 {
 	return __mcopy_atomic(dst_mm, dst_start, src_start, len, false,
 			      mmap_changing, mode);
+}
+
+ssize_t dma_mcopy_pages(struct mm_struct *dst_mm,
+		     struct userfaultfd_dma_copy *userfaultfd_dma_copy,
+		     bool *mmap_changing)
+{
+	return __dma_mcopy_pages(dst_mm, 
+			      userfaultfd_dma_copy,
+			      mmap_changing);
 }
 
 ssize_t mfill_zeropage(struct mm_struct *dst_mm, unsigned long start,

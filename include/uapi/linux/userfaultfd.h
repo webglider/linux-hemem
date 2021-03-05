@@ -64,6 +64,8 @@
 #define _UFFDIO_CR3        (0x0a)
 #define _UFFDIO_GET_FLAG  (0x0b)
 #define _UFFDIO_CLEAR_FLAG  (0x0c)
+#define _UFFDIO_DMA_COPY  (0x0d)
+
 
 /* userfaultfd ioctl ids */
 #define UFFDIO 0xAA
@@ -89,6 +91,8 @@
               struct uffdio_page_flags)
 #define UFFDIO_CLEAR_FLAG   _IOWR(UFFDIO, _UFFDIO_CLEAR_FLAG, \
               struct uffdio_page_flags)
+#define UFFDIO_DMA_COPY		_IOWR(UFFDIO, _UFFDIO_DMA_COPY,	\
+				      struct uffdio_dma_copy)
 
 /* read() structure */
 struct uffd_msg {
@@ -284,6 +288,27 @@ struct uffdio_page_flags {
   __u64 flag2;  // the second flag of interest
   __u64 res1;   // result of operation (flag1 value if get, success/fail if set)
   __u64 res2;   // result of operation (flag2 value)
+};
+
+struct uffdio_dma_copy {
+    __u64 dst;
+    __u64 src;
+    __u64 len;
+
+    /*
+     * There will be a wrprotection flag later that allows to map
+     * pages wrprotected on the fly. And such a flag will be
+     * available if the wrprotection ioctl are implemented for the
+     * range according to the uffdio_register.ioctls.
+     */
+#define UFFDIO_COPY_MODE_DONTWAKE       ((__u64)1<<0)
+    __u64 mode;
+
+    /*
+     * "copy" is written by the ioctl and must be at the end: the
+     * copy_from_user will not read the last 8 bytes.
+     */
+    __s64 copy;
 };
 
 #endif /* _LINUX_USERFAULTFD_H */

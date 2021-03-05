@@ -2142,6 +2142,59 @@ bad:
   return -1;
 }
 
+static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
+                    unsigned long arg)
+{
+    _s64 ret;
+    struct uffdio_dma_copy uffdio_dma_copy;
+    struct uffdio_dma_copy __user *user_uffdio_dma_copy;
+    struct userfaultfd_wake_range range;
+
+    user_uffdio_dma_copy = (struct uffdio_dma_copy __user *) arg;
+    
+    ret = -EAGAIN;
+    if (READ_ONCE(ctx->mmap_changing))
+        goto out;
+
+    ret = -EFAULT;
+    if (copy_from_user(&uffdio_dma_copy, user_uffdio_dma_copy,
+               /* don't copy "copy" last field */
+               sizeof(uffdio_dma_copy)-sizeof(__s64)))
+        goto out;
+
+    ret = validate_range(ctx->mm, uffdio_dma_copy.dst, uffdio_dma_copy.len);
+    if (ret)
+        goto out;
+    /*
+     * double check for wraparound just in case. copy_from_user()
+     * will later check uffdio_copy.src + uffdio_copy.len to fit
+     * in the userland range.
+     */
+    ret = -EINVAL;
+    if (uffdio_dma_copy.src + uffdio_dma_copy.len <= uffdio_dma_copy.src)
+        goto out;
+    if (mmget_not_zero(ctx->mm)) {
+        ret = dma_mcopy_pages(ctx->mm, &uffdio_dma_copy, &ctx->mmap_changing);
+        mmput(ctx->mm);
+    } else {
+        return -ESRCH;
+    }
+    if (unlikely(put_user(ret, &user_uffdio_dma_copy->copy)))
+        return -EFAULT;
+    if (ret < 0)
+        goto out;
+    BUG_ON(!ret);
+    /* len == 0 would wake all */
+    range.len = ret;
+    if (!(uffdio_dma_copy.mode & UFFDIO_COPY_MODE_DONTWAKE)) {
+        range.start = uffdio_dma_copy.dst;
+        wake_userfault(ctx, &range);
+    }
+    ret = range.len == uffdio_dma_copy.len ? 0 : -EAGAIN;
+out:
+    return ret;
+}
+
 static inline unsigned int uffd_ctx_features(__u64 user_features)
 {
 	/*
@@ -2234,6 +2287,9 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
   case UFFDIO_CLEAR_FLAG:
     ret = userfaultfd_clear_flag(ctx, arg);
     break;
+	case UFFDIO_DMA_COPY:
+		ret = userfaultfd_dma_copy(ctx, arg);
+		break;
 	}
 	return ret;
 }
