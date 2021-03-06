@@ -2145,7 +2145,7 @@ bad:
 static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
                     unsigned long arg)
 {
-    _s64 ret;
+    __s64 ret;
     struct uffdio_dma_copy uffdio_dma_copy;
     struct uffdio_dma_copy __user *user_uffdio_dma_copy;
     struct userfaultfd_wake_range range;
@@ -2159,7 +2159,7 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
     ret = -EFAULT;
     if (copy_from_user(&uffdio_dma_copy, user_uffdio_dma_copy,
                /* don't copy "copy" last field */
-               sizeof(uffdio_dma_copy)-sizeof(__s64)))
+	       sizeof(uffdio_dma_copy)-sizeof(__s64)))
         goto out;
 
     ret = validate_range(ctx->mm, uffdio_dma_copy.dst, uffdio_dma_copy.len);
