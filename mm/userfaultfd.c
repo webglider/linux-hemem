@@ -657,7 +657,7 @@ static void tx_callback(void *dma_async_param)
 }
 
 static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
-					      struct userfaultfd_dma_copy* userfaultd_dma_copy,
+					      struct uffdio_dma_copy *uffdio_dma_copy,
 					      bool *mmap_changing)
 {
 	struct vm_area_struct *dst_vma;
@@ -670,15 +670,15 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	dma_addr_t src_phys;
 	dma_addr_t dst_phys;
 	struct dma_chan *chan = NULL;
-	dma_cap_mask mask;
+	dma_cap_mask_t mask;
 	struct dma_async_tx_descriptor *tx = NULL;
-	dma_cookie dma_cookie;
+	dma_cookie_t dma_cookie;
 
 	//TODO, for now only do one page
-	BUG_ON(usefaultfd_dma_copy == NULL);
-	dst_start = userfaultfd_dma_copy->dst;
-	src_start = userfaultfd_dma_copy->src;
-	len = userfaultfd_dma_copy->len;
+	BUG_ON(uffdio_dma_copy == NULL);
+	dst_start = uffdio_dma_copy->dst;
+	src_start = uffdio_dma_copy->src;
+	len = uffdio_dma_copy->len;
 
 	/*
 	 * Sanitize the command parameters:
@@ -691,7 +691,6 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	BUG_ON(dst_start + len <= dst_start);
 
 	copied = 0;
-	page = NULL;
 
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_MEMCPY, mask);
@@ -700,7 +699,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		printk("error when dma_request_channel\n");
 		goto out;
 	}
-retry:
+
 	down_read(&dst_mm->mmap_sem);
 
 	/*
@@ -721,7 +720,7 @@ retry:
 	if (!dst_vma)
 		goto out_unlock;
 
-	err = -EINVAL;
+	err = 0;
 	/*
 	 * shmem_zero_setup is invoked in mmap for MAP_ANONYMOUS|MAP_SHARED but
 	 * it will overwrite vm_ops, so vma_is_anonymous must return false.
@@ -734,7 +733,7 @@ retry:
 	 * validate 'mode' now that we know the dst_vma: don't allow
 	 * a wrprotect copy if the userfaultfd didn't register as WP.
 	 */
-	wp_copy = mode & UFFDIO_COPY_MODE_WP;
+	wp_copy = uffdio_dma_copy->mode & UFFDIO_COPY_MODE_WP;
 	if (wp_copy && !(dst_vma->vm_flags & VM_UFFD_WP))
 		goto out_unlock;
 
@@ -778,11 +777,11 @@ ssize_t mcopy_atomic(struct mm_struct *dst_mm, unsigned long dst_start,
 }
 
 ssize_t dma_mcopy_pages(struct mm_struct *dst_mm,
-		     struct userfaultfd_dma_copy *userfaultfd_dma_copy,
+		     struct uffdio_dma_copy *uffdio_dma_copy,
 		     bool *mmap_changing)
 {
 	return __dma_mcopy_pages(dst_mm, 
-			      userfaultfd_dma_copy,
+			      uffdio_dma_copy,
 			      mmap_changing);
 }
 

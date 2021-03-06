@@ -43,7 +43,7 @@ extern int mwriteprotect_range(struct mm_struct *dst_mm,
 			       unsigned long start, unsigned long len,
 			       bool enable_wp, bool *mmap_changing);
 extern ssize_t dma_mcopy_pages(struct mm_struct *dst_mm,
-				struct userfaultfd_dma_copy *userfaultfd_dma_copy,
+				struct uffdio_dma_copy *uufdio_dma_copy,
 			    	bool *mmap_changing);
 
 /* mm helpers */
