@@ -43,7 +43,8 @@
 	 (__u64)1 << _UFFDIO_TLBFLUSH | \
    (__u64)1 << _UFFDIO_CR3      | \
    (__u64)1 << _UFFDIO_GET_FLAG | \
-   (__u64)1 << _UFFDIO_CLEAR_FLAG)
+   (__u64)1 << _UFFDIO_CLEAR_FLAG | \
+   (__u64)1 << _UFFDIO_DMA_COPY)
 
 /*
  * Valid ioctl command number range with this API is from 0x00 to
