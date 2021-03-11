@@ -2151,7 +2151,8 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
     struct userfaultfd_wake_range range;
 
     user_uffdio_dma_copy = (struct uffdio_dma_copy __user *) arg;
-    
+   
+    printk("wei: start userfaultfd_dma_copy\n"); 
     ret = -EAGAIN;
     if (READ_ONCE(ctx->mmap_changing))
         goto out;
@@ -2162,6 +2163,7 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
 	       sizeof(uffdio_dma_copy)-sizeof(__s64)))
         goto out;
 
+    printk("wei: start validate_range\n");
     ret = validate_range(ctx->mm, uffdio_dma_copy.dst, uffdio_dma_copy.len);
     if (ret)
         goto out;
@@ -2247,12 +2249,16 @@ out:
 static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 			      unsigned long arg)
 {
+	printk("wei: at the beginning of the userfaultfd_ioctl\n");
 	int ret = -EINVAL;
 	struct userfaultfd_ctx *ctx = file->private_data;
 
+	printk("wei: cmd != UFFDIO_API, %d\n", cmd != UFFDIO_API);
+	printk("wei: ctx->state == UFFD_STATE_WAIT_API, %d\n", ctx->state == UFFD_STATE_WAIT_API);
 	if (cmd != UFFDIO_API && ctx->state == UFFD_STATE_WAIT_API)
 		return -EINVAL;
 
+	printk("wei: cmd and state verify fails\n");
 	switch(cmd) {
 	case UFFDIO_API:
 		ret = userfaultfd_api(ctx, arg);

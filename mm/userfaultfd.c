@@ -717,8 +717,10 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	 */
 	err = -ENOENT;
 	dst_vma = vma_find_uffd(dst_mm, dst_start, len);
-	if (!dst_vma)
+	if (!dst_vma) {
+		printk("wei vma_find_uffd fails*****\n");
 		goto out_unlock;
+	}
 
 	err = 0;
 	/*
