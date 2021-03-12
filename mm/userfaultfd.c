@@ -652,8 +652,10 @@ out:
 
 static void tx_callback(void *dma_async_param)
 {
+	printk("wei: in tx_callback, before wake_up_interrutible\n");
 	dma_finished = 1;
 	wake_up_interruptible(&wq);
+	printk("wei: in tx_callback, after wake_up_interrutible\n");
 }
 
 static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
@@ -695,6 +697,12 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_MEMCPY, mask);
 	chan = dma_request_channel(mask, NULL, NULL);
+
+	printk("wei: chan device id: %d, device int name: %s, device type name: %s, \n", 
+			chan->device->dev_id,
+			chan->device->dev->init_name,
+			chan->device->dev->type->name);
+	printk("wei: func device_issue_pending: %pF at address: %p", chan->device->device_issue_pending, chan->device->device_issue_pending);
 	if (chan == NULL) {
 		printk("error when dma_request_channel\n");
 		goto out;
@@ -711,6 +719,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	if (mmap_changing && READ_ONCE(*mmap_changing))
 		goto out_unlock;
 
+#if 0
 	/*
 	 * Make sure the vma is not shared, that the dst range is
 	 * both valid and fully within a single existing vma.
@@ -738,6 +747,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	wp_copy = uffdio_dma_copy->mode & UFFDIO_COPY_MODE_WP;
 	if (wp_copy && !(dst_vma->vm_flags & VM_UFFD_WP))
 		goto out_unlock;
+#endif
 
 	//TODO from virtual addr to physical addr
 	src_phys = virt_to_phys(src_start);
@@ -756,7 +766,9 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	}
 
 	dma_async_issue_pending(chan);
+	printk("wei: after dma_async_issue_pending, before wait_event_interruptible\n");
 	wait_event_interruptible(wq, dma_finished);
+	printk("wei: after wait_event_interruptible\n");
 	copied += len;
 
 out_unlock:

@@ -373,6 +373,7 @@ void dma_issue_pending_all(void)
 	list_for_each_entry_rcu(device, &dma_device_list, global_node) {
 		if (dma_has_cap(DMA_PRIVATE, device->cap_mask))
 			continue;
+		printk("wei: dma_issue_pending_all\n");
 		list_for_each_entry(chan, &device->channels, device_node)
 			if (chan->client_count)
 				device->device_issue_pending(chan);
