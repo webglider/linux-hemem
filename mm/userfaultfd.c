@@ -28,6 +28,7 @@
 #include <linux/slab.h>
 #include <linux/dmaengine.h>
 #include "internal.h"
+#include <linux/delay.h>
 
 static volatile int dma_finished = 0;
 static DECLARE_WAIT_QUEUE_HEAD(wq);
@@ -650,7 +651,7 @@ out:
 	return copied ? copied : err;
 }
 
-static void tx_callback(void *dma_async_param)
+static void hemem_dma_tx_callback(void *dma_async_param)
 {
 	printk("wei: in tx_callback, before wake_up_interrutible\n");
 	dma_finished = 1;
@@ -666,15 +667,17 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	ssize_t err;
 	long copied;
 	bool wp_copy;
-	unsigned long src_start;
-	unsigned long dst_start;
-	unsigned long len;
-	dma_addr_t src_phys;
-	dma_addr_t dst_phys;
+	u64 src_start;
+	u64 dst_start;
+	u64 len;
+	volatile dma_addr_t src_phys;
+	volatile dma_addr_t dst_phys;
 	struct dma_chan *chan = NULL;
 	dma_cap_mask_t mask;
 	struct dma_async_tx_descriptor *tx = NULL;
 	dma_cookie_t dma_cookie;
+	struct dma_device *dma;
+	struct device *dev;
 
 	//TODO, for now only do one page
 	BUG_ON(uffdio_dma_copy == NULL);
@@ -697,14 +700,18 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_MEMCPY, mask);
 	chan = dma_request_channel(mask, NULL, NULL);
+	dma = chan->device;
+	dev = dma->dev;
 
-	printk("wei: chan device id: %d, device int name: %s, device type name: %s, \n", 
+	printk("wei: chan device id: %d, device int name: %s, device type name: %s\n", 
 			chan->device->dev_id,
 			chan->device->dev->init_name,
 			chan->device->dev->type->name);
+
+	printk("wei: mm_userfaultfd.c, chan addr: %p, chan_id: %d, table_count:%d, client_count:%d\n", chan, chan->chan_id, chan->table_count, chan->client_count);
 	printk("wei: func device_issue_pending: %pF at address: %p", chan->device->device_issue_pending, chan->device->device_issue_pending);
 	if (chan == NULL) {
-		printk("error when dma_request_channel\n");
+		printk("wei: error when dma_request_channel\n");
 		goto out;
 	}
 
@@ -752,25 +759,52 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	//TODO from virtual addr to physical addr
 	src_phys = virt_to_phys(src_start);
 	dst_phys = virt_to_phys(dst_start);
-
-	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-	if (tx == NULL) {
-		printk("error when dmaengine_prep_dma_memcpy\n");
-		goto out;
+	printk("wei: virt_to_phys src_start=%llu, dst_start=%llu, src_phys=%llu, dst_phys=%llu\n",
+			src_start, dst_start, src_phys, dst_phys);
+	src_phys = dma_map_single(dev, src_start, len, DMA_FROM_DEVICE);
+	if (dma_mapping_error(dev, src_phys)) {
+		printk("wei: mapping src buffer failed\n");
+		err = -ENOMEM;
+		goto unmap_src;
 	}
 
-	tx->callback = tx_callback;
+	dst_phys = dma_map_single(dev, dst_start, len, DMA_TO_DEVICE);
+	if (dma_mapping_error(dev, dst_phys)) {
+		printk("wei: mapping dst buffer failed\n");
+		err = -ENOMEM;
+		goto unmap_dma;
+	}
+
+	printk("wei: dma_map_single src_start=%llu, dst_start=%llu, src_phys=%llu, dst_phys=%llu\n",
+			src_start, dst_start, src_phys, dst_phys);
+	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+	if (tx == NULL) {
+		printk("wei: error when dmaengine_prep_dma_memcpy\n");
+		goto unmap_dma;
+	}
+
+	tx->callback = hemem_dma_tx_callback;
+	tx->cookie = chan->cookie;
+	printk("wei: in mm_userfaultfd.c, tx callback name: %pF, tx callback addr:%p\n", tx->callback, tx->callback);
+	//tx->callback = NULL;
 	dma_cookie = dmaengine_submit(tx);
 	if (dma_submit_error(dma_cookie)) {
-		printk("Failed to do DMA tx_submit\n");
+		printk("wei: Failed to do DMA tx_submit\n");
+		goto unmap_dma;
 	}
 
 	dma_async_issue_pending(chan);
+	//dma_sync_wait(chan, dma_cookie);
 	printk("wei: after dma_async_issue_pending, before wait_event_interruptible\n");
 	wait_event_interruptible(wq, dma_finished);
+	//mdelay(1000);
 	printk("wei: after wait_event_interruptible\n");
 	copied += len;
 
+unmap_dma:
+	dma_unmap_single(dev, dst_phys, len, DMA_TO_DEVICE);
+unmap_src:
+	dma_unmap_single(dev, src_phys, len, DMA_FROM_DEVICE);
 out_unlock:
 	up_read(&dst_mm->mmap_sem);
 out:

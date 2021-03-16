@@ -132,6 +132,11 @@ irqreturn_t ioat_dma_do_interrupt_msix(int irq, void *data)
 		printk("wei: ioat_dma_do_interrupt_msix, cleanup_task fun name: %pF at address %p\n",
 				ioat_chan->cleanup_task.func,
 				ioat_chan->cleanup_task.func);
+		printk("wei: chan addr: %p, chan_id: %d, table_count:%d, client_count:%d\n",
+				&(ioat_chan->dma_chan),
+				ioat_chan->dma_chan.chan_id,
+				ioat_chan->dma_chan.table_count,
+				ioat_chan->dma_chan.client_count);
 		tasklet_schedule(&ioat_chan->cleanup_task);
 	}
 
@@ -549,12 +554,15 @@ static bool ioat_cleanup_preamble(struct ioatdma_chan *ioat_chan,
 				   u64 *phys_complete)
 {
 	*phys_complete = ioat_get_current_completion(ioat_chan);
-	if (*phys_complete == ioat_chan->last_completion)
+	if (*phys_complete == ioat_chan->last_completion) {
+		printk("wei: ioat_cleanup_preamble returns false\n");
 		return false;
+	}
 
 	clear_bit(IOAT_COMPLETION_ACK, &ioat_chan->state);
 	mod_timer(&ioat_chan->timer, jiffies + COMPLETION_TIMEOUT);
 
+	printk("wei: ioat_cleanup_preamble returns true\n");
 	return true;
 }
 
@@ -626,7 +634,9 @@ static void __cleanup(struct ioatdma_chan *ioat_chan, dma_addr_t phys_complete)
 			desc_get_errstat(ioat_chan, desc);
 
 		tx = &desc->txd;
+		printk("wei:__cleanup, cookie=%d\n", tx->cookie);
 		if (tx->cookie) {
+			printk("wei: __cleanup, callback addr:%p\n", tx->callback);
 			dma_cookie_complete(tx);
 			dma_descriptor_unmap(tx);
 			dmaengine_desc_get_callback_invoke(tx, NULL);
