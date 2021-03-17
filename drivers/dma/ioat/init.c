@@ -293,6 +293,7 @@ static bool is_bwd_noraid(struct pci_dev *pdev)
 
 }
 
+#if 0
 /*
  * Perform a IOAT transaction to verify the HW works.
  */
@@ -309,11 +310,12 @@ static void ioat_dma_test_callback(void *dma_async_param)
  * ioat_dma_self_test - Perform a IOAT transaction to verify the HW works.
  * @ioat_dma: dma device to be tested
  */
-static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
+//static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
+int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u64 dest, u64 len)
 {
 	int i;
-	u8 *src;
-	u8 *dest;
+//	u8 *src;
+//	u8 *dest;
 	struct dma_device *dma = &ioat_dma->dma_dev;
 	struct device *dev = &ioat_dma->pdev->dev;
 	struct dma_chan *dma_chan;
@@ -325,6 +327,7 @@ static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
 	unsigned long tmo;
 	unsigned long flags;
 
+#if 0
 	src = kzalloc(IOAT_TEST_SIZE, GFP_KERNEL);
 	if (!src)
 		return -ENOMEM;
@@ -337,6 +340,7 @@ static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
 	/* Fill in src buffer */
 	for (i = 0; i < IOAT_TEST_SIZE; i++)
 		src[i] = (u8)i;
+#endif
 
 	/* Start copy, using first DMA channel */
 	dma_chan = container_of(dma->channels.next, struct dma_chan,
@@ -347,13 +351,15 @@ static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
 		goto out;
 	}
 
-	dma_src = dma_map_single(dev, src, IOAT_TEST_SIZE, DMA_TO_DEVICE);
+	//dma_src = dma_map_single(dev, src, IOAT_TEST_SIZE, DMA_TO_DEVICE);
+	dma_src = dma_map_single(dev, src, len, DMA_TO_DEVICE);
 	if (dma_mapping_error(dev, dma_src)) {
 		dev_err(dev, "mapping src buffer failed\n");
 		err = -ENOMEM;
 		goto free_resources;
 	}
-	dma_dest = dma_map_single(dev, dest, IOAT_TEST_SIZE, DMA_FROM_DEVICE);
+	//dma_dest = dma_map_single(dev, dest, IOAT_TEST_SIZE, DMA_FROM_DEVICE);
+	dma_dest = dma_map_single(dev, dest, len, DMA_FROM_DEVICE);
 	if (dma_mapping_error(dev, dma_dest)) {
 		dev_err(dev, "mapping dest buffer failed\n");
 		err = -ENOMEM;
@@ -361,8 +367,10 @@ static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
 	}
 	flags = DMA_PREP_INTERRUPT;
 	tx = ioat_dma->dma_dev.device_prep_dma_memcpy(dma_chan, dma_dest,
-						      dma_src, IOAT_TEST_SIZE,
+						      dma_src, len,
 						      flags);
+						      //dma_src, IOAT_TEST_SIZE,
+						      //flags);
 	if (!tx) {
 		dev_err(dev, "Self-test prep failed, disabling\n");
 		err = -ENODEV;
@@ -390,7 +398,8 @@ static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
 		err = -ENODEV;
 		goto unmap_dma;
 	}
-	if (memcmp(src, dest, IOAT_TEST_SIZE)) {
+	//if (memcmp(src, dest, IOAT_TEST_SIZE)) {
+	if (memcmp(src, dest, len)) {
 		dev_err(dev, "Self-test copy failed compare, disabling\n");
 		err = -ENODEV;
 		goto unmap_dma;
@@ -398,15 +407,18 @@ static int ioat_dma_self_test(struct ioatdma_device *ioat_dma)
 
 unmap_dma:
 	dma_unmap_single(dev, dma_dest, IOAT_TEST_SIZE, DMA_FROM_DEVICE);
+	//dma_unmap_single(dev, dma_dest, len, DMA_FROM_DEVICE);
 unmap_src:
-	dma_unmap_single(dev, dma_src, IOAT_TEST_SIZE, DMA_TO_DEVICE);
+	//dma_unmap_single(dev, dma_src, IOAT_TEST_SIZE, DMA_TO_DEVICE);
+	dma_unmap_single(dev, dma_src, len, DMA_TO_DEVICE);
 free_resources:
 	dma->device_free_chan_resources(dma_chan);
 out:
-	kfree(src);
-	kfree(dest);
+//	kfree(src);
+//	kfree(dest);
 	return err;
 }
+#endif
 
 /**
  * ioat_dma_setup_interrupts - setup interrupt handler
@@ -1068,9 +1080,11 @@ static int ioat3_dma_self_test(struct ioatdma_device *ioat_dma)
 {
 	int rc;
 
+#if 0
 	rc = ioat_dma_self_test(ioat_dma);
 	if (rc)
 		return rc;
+#endif
 
 	rc = ioat_xor_val_self_test(ioat_dma);
 

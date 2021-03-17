@@ -417,4 +417,120 @@ void ioat_kobject_add(struct ioatdma_device *ioat_dma, struct kobj_type *type);
 void ioat_kobject_del(struct ioatdma_device *ioat_dma);
 int ioat_dma_setup_interrupts(struct ioatdma_device *ioat_dma);
 void ioat_stop(struct ioatdma_chan *ioat_chan);
+
+static inline void ioat_dma_test_callback(void *dma_async_param)
+{
+	struct completion *cmp = dma_async_param;
+
+	complete(cmp);
+}
+
+static inline int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u64 dest, u64 len)
+{
+	int i;
+//	u8 *src;
+//	u8 *dest;
+	struct dma_device *dma = &ioat_dma->dma_dev;
+	struct device *dev = &ioat_dma->pdev->dev;
+	struct dma_chan *dma_chan;
+	struct dma_async_tx_descriptor *tx;
+	dma_addr_t dma_dest, dma_src;
+	dma_cookie_t cookie;
+	int err = 0;
+	struct completion cmp;
+	unsigned long tmo;
+	unsigned long flags;
+
+#if 0
+	src = kzalloc(IOAT_TEST_SIZE, GFP_KERNEL);
+	if (!src)
+		return -ENOMEM;
+	dest = kzalloc(IOAT_TEST_SIZE, GFP_KERNEL);
+	if (!dest) {
+		kfree(src);
+		return -ENOMEM;
+	}
+
+	/* Fill in src buffer */
+	for (i = 0; i < IOAT_TEST_SIZE; i++)
+		src[i] = (u8)i;
+#endif
+
+	/* Start copy, using first DMA channel */
+	dma_chan = container_of(dma->channels.next, struct dma_chan,
+				device_node);
+	if (dma->device_alloc_chan_resources(dma_chan) < 1) {
+		dev_err(dev, "selftest cannot allocate chan resource\n");
+		err = -ENODEV;
+		goto out;
+	}
+
+	//dma_src = dma_map_single(dev, src, IOAT_TEST_SIZE, DMA_TO_DEVICE);
+	dma_src = dma_map_single(dev, src, len, DMA_TO_DEVICE);
+	if (dma_mapping_error(dev, dma_src)) {
+		dev_err(dev, "mapping src buffer failed\n");
+		err = -ENOMEM;
+		goto free_resources;
+	}
+	//dma_dest = dma_map_single(dev, dest, IOAT_TEST_SIZE, DMA_FROM_DEVICE);
+	dma_dest = dma_map_single(dev, dest, len, DMA_FROM_DEVICE);
+	if (dma_mapping_error(dev, dma_dest)) {
+		dev_err(dev, "mapping dest buffer failed\n");
+		err = -ENOMEM;
+		goto unmap_src;
+	}
+	flags = DMA_PREP_INTERRUPT;
+	tx = ioat_dma->dma_dev.device_prep_dma_memcpy(dma_chan, dma_dest,
+						      dma_src, len,
+						      flags);
+						      //dma_src, IOAT_TEST_SIZE,
+						      //flags);
+	if (!tx) {
+		dev_err(dev, "Self-test prep failed, disabling\n");
+		err = -ENODEV;
+		goto unmap_dma;
+	}
+
+	async_tx_ack(tx);
+	init_completion(&cmp);
+	tx->callback = ioat_dma_test_callback;
+	tx->callback_param = &cmp;
+	cookie = tx->tx_submit(tx);
+	if (cookie < 0) {
+		dev_err(dev, "Self-test setup failed, disabling\n");
+		err = -ENODEV;
+		goto unmap_dma;
+	}
+	dma->device_issue_pending(dma_chan);
+
+	tmo = wait_for_completion_timeout(&cmp, msecs_to_jiffies(3000));
+
+	if (tmo == 0 ||
+	    dma->device_tx_status(dma_chan, cookie, NULL)
+					!= DMA_COMPLETE) {
+		dev_err(dev, "Self-test copy timed out, disabling\n");
+		err = -ENODEV;
+		goto unmap_dma;
+	}
+	//if (memcmp(src, dest, IOAT_TEST_SIZE)) {
+	if (memcmp(src, dest, len)) {
+		dev_err(dev, "Self-test copy failed compare, disabling\n");
+		err = -ENODEV;
+		goto unmap_dma;
+	}
+
+unmap_dma:
+	//dma_unmap_single(dev, dma_dest, IOAT_TEST_SIZE, DMA_FROM_DEVICE);
+	dma_unmap_single(dev, dma_dest, len, DMA_FROM_DEVICE);
+unmap_src:
+	//dma_unmap_single(dev, dma_src, IOAT_TEST_SIZE, DMA_TO_DEVICE);
+	dma_unmap_single(dev, dma_src, len, DMA_TO_DEVICE);
+free_resources:
+	dma->device_free_chan_resources(dma_chan);
+out:
+//	kfree(src);
+//	kfree(dest);
+	return err;
+}
+
 #endif /* IOATDMA_H */
