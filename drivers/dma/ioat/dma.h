@@ -417,4 +417,6 @@ void ioat_kobject_add(struct ioatdma_device *ioat_dma, struct kobj_type *type);
 void ioat_kobject_del(struct ioatdma_device *ioat_dma);
 int ioat_dma_setup_interrupts(struct ioatdma_device *ioat_dma);
 void ioat_stop(struct ioatdma_chan *ioat_chan);
+
+int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u64 dest, u64 len);
 #endif /* IOATDMA_H */

@@ -29,6 +29,7 @@
 #include <linux/dmaengine.h>
 #include "internal.h"
 #include <linux/delay.h>
+#include "../drivers/dma/ioat/dma.h"
 
 static volatile int dma_finished = 0;
 static DECLARE_WAIT_QUEUE_HEAD(wq);
@@ -678,6 +679,13 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	dma_cookie_t dma_cookie;
 	struct dma_device *dma;
 	struct device *dev;
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+	struct mm_struct *mm = current->mm;
+	int present;
 
 	//TODO, for now only do one page
 	BUG_ON(uffdio_dma_copy == NULL);
@@ -756,11 +764,45 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		goto out_unlock;
 #endif
 
+	//memset(src_start, 'B', len);
 	//TODO from virtual addr to physical addr
 	src_phys = virt_to_phys(src_start);
 	dst_phys = virt_to_phys(dst_start);
-	printk("wei: virt_to_phys src_start=%llu, dst_start=%llu, src_phys=%llu, dst_phys=%llu\n",
-			src_start, dst_start, src_phys, dst_phys);
+	printk("wei: virt_to_phys src_start=%llu, src_end=%llu, dst_start=%llu, dst_end=%llu, src_phys=%llu, src_end_phys=%llu, dst_phys=%llu, dst_end_phys=%llu\n",
+			src_start, src_start+len, dst_start, dst_start+len, src_phys, virt_to_phys(src_start+len), dst_phys, virt_to_phys(dst_start+len));
+
+	if (mm != dst_mm) {
+		printk("wei: current mm != dst_mm\n");
+	}
+	pgd = pgd_offset(mm, src_start);
+	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd))) {
+		printk("wei: pgd bad or none\n");
+		goto unmap_src;
+	}
+
+	p4d = p4d_offset(pgd, src_start);
+	if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d))) {
+		printk("wei: p4d bad or none\n");
+		goto unmap_src;
+	}
+
+	pud = pud_offset(p4d, src_start);
+	if (pud_none(*pud) || unlikely(pud_bad(*pud))) {
+		printk("wei: pud bad or none\n");
+		goto unmap_src;
+	}
+
+	pmd = pmd_offset(pud, src_start);
+	if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd))) {
+		printk("wei: pmd bad or none\n");
+		goto unmap_src;
+	}
+
+	pte = pte_offset_kernel(pmd, src_start);
+	present = pte_present(*pte);
+	printk("wei: src_page present is %d\n", present);
+	
+
 	src_phys = dma_map_single(dev, src_start, len, DMA_FROM_DEVICE);
 	if (dma_mapping_error(dev, src_phys)) {
 		printk("wei: mapping src buffer failed\n");
@@ -777,6 +819,9 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 
 	printk("wei: dma_map_single src_start=%llu, dst_start=%llu, src_phys=%llu, dst_phys=%llu\n",
 			src_start, dst_start, src_phys, dst_phys);
+
+	ioat_dma_self_test(to_ioat_chan(chan, src_start, dst_start, len));
+#if 0
 	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (tx == NULL) {
 		printk("wei: error when dmaengine_prep_dma_memcpy\n");
@@ -800,6 +845,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	//mdelay(1000);
 	printk("wei: after wait_event_interruptible\n");
 	copied += len;
+#endif
 
 unmap_dma:
 	dma_unmap_single(dev, dst_phys, len, DMA_TO_DEVICE);
