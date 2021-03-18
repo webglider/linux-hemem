@@ -293,6 +293,7 @@ static bool is_bwd_noraid(struct pci_dev *pdev)
 
 }
 
+#if 0
 /*
  * Perform a IOAT transaction to verify the HW works.
  */
@@ -417,6 +418,7 @@ out:
 //	kfree(dest);
 	return err;
 }
+#endif
 
 /**
  * ioat_dma_setup_interrupts - setup interrupt handler

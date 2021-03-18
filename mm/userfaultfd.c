@@ -29,6 +29,7 @@
 #include <linux/dmaengine.h>
 #include "internal.h"
 #include <linux/delay.h>
+#include <linux/pci.h>
 #include "../drivers/dma/ioat/dma.h"
 
 static volatile int dma_finished = 0;
@@ -820,7 +821,8 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	printk("wei: dma_map_single src_start=%llu, dst_start=%llu, src_phys=%llu, dst_phys=%llu\n",
 			src_start, dst_start, src_phys, dst_phys);
 
-	ioat_dma_self_test(to_ioat_chan(chan, src_start, dst_start, len));
+	printk("wei: use ioat_dma_self_test\n");
+	ioat_dma_self_test(to_ioat_chan(chan)->ioat_dma, src_start, dst_start, len);
 #if 0
 	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (tx == NULL) {
