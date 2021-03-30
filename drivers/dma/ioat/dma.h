@@ -440,6 +440,7 @@ static inline int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u
 	struct completion cmp;
 	unsigned long tmo;
 	unsigned long flags;
+	printk("wei: begin ioat_dma_self_test\n");
 
 #if 0
 	src = kzalloc(IOAT_TEST_SIZE, GFP_KERNEL);
@@ -512,12 +513,14 @@ static inline int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u
 		err = -ENODEV;
 		goto unmap_dma;
 	}
+	#if 0
 	//if (memcmp(src, dest, IOAT_TEST_SIZE)) {
 	if (memcmp(src, dest, len)) {
 		dev_err(dev, "Self-test copy failed compare, disabling\n");
 		err = -ENODEV;
 		goto unmap_dma;
 	}
+	#endif
 
 unmap_dma:
 	//dma_unmap_single(dev, dma_dest, IOAT_TEST_SIZE, DMA_FROM_DEVICE);
@@ -530,6 +533,8 @@ free_resources:
 out:
 //	kfree(src);
 //	kfree(dest);
+
+	printk("wei: end of ioat_dma_self_test\n");
 	return err;
 }
 

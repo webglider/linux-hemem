@@ -31,6 +31,7 @@
 #include <linux/delay.h>
 #include <linux/pci.h>
 #include "../drivers/dma/ioat/dma.h"
+#include <asm/pgtable.h>
 
 static volatile int dma_finished = 0;
 static DECLARE_WAIT_QUEUE_HEAD(wq);
@@ -661,6 +662,77 @@ static void hemem_dma_tx_callback(void *dma_async_param)
 	printk("wei: in tx_callback, after wake_up_interrutible\n");
 }
 
+
+static int bad_address(void *p)
+{
+	unsigned long dummy;
+
+	return probe_kernel_address((unsigned long *)p, dummy);
+}
+
+static int  page_walk(u64 address)
+{
+
+	pgd_t *base = __va(read_cr3_pa());
+	pgd_t *pgd = base + pgd_index(address);
+        p4d_t *p4d;
+        pud_t *pud;
+        pmd_t *pmd;
+        pte_t *pte;
+ 	int present = 0;	
+	int write = 0;
+
+        printk("wei: in page_walk, base:%p, current->mm->pgd:%p, address:%llu, pid=%d, tgid=%d\n", base, current->mm->pgd, address, current->pid, current->tgid);
+
+	if (bad_address(pgd))
+		goto bad;
+
+	pr_info("PGD %016lx ", pgd_val(*pgd));
+
+	if (!pgd_present(*pgd))
+		goto out;
+
+	p4d = p4d_offset(pgd, address);
+	if (bad_address(p4d))
+		goto bad;
+
+	pr_cont("P4D %016lx ", p4d_val(*p4d));
+	if (!p4d_present(*p4d) || p4d_large(*p4d))
+		goto out;
+
+	pud = pud_offset(p4d, address);
+	if (bad_address(pud))
+		goto bad;
+
+	pr_cont("PUD %016lx ", pud_val(*pud));
+	if (!pud_present(*pud) || pud_large(*pud))
+		goto out;
+
+	pmd = pmd_offset(pud, address);
+	if (bad_address(pmd))
+		goto bad;
+
+	pr_cont("PMD %016lx ", pmd_val(*pmd));
+	if (!pmd_present(*pmd) || pmd_large(*pmd))
+		goto out;
+
+	pte = pte_offset_kernel(pmd, address);
+	if (bad_address(pte))
+		goto bad;
+
+        present = pte_present(*pte);
+        write = pte_write(*pte);
+	printk("wei: base %p, addr %llu, present %d, write: %d\n", base, address, present, write);
+
+	pr_cont("PTE %016lx", pte_val(*pte));
+out:
+	pr_cont("\n");
+	return present;
+bad:
+	pr_info("BAD\n");
+	return present;
+}
+
 static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 					      struct uffdio_dma_copy *uffdio_dma_copy,
 					      bool *mmap_changing)
@@ -669,8 +741,9 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	ssize_t err;
 	long copied;
 	bool wp_copy;
-	u64 src_start;
-	u64 dst_start;
+	volatile u64 src_start;
+	volatile u64 dst_start;
+	volatile u64 src_end;
 	u64 len;
 	volatile dma_addr_t src_phys;
 	volatile dma_addr_t dst_phys;
@@ -680,19 +753,16 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	dma_cookie_t dma_cookie;
 	struct dma_device *dma;
 	struct device *dev;
-	pgd_t *pgd;
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-	pte_t *pte;
 	struct mm_struct *mm = current->mm;
 	int present;
+	int i;
 
 	//TODO, for now only do one page
 	BUG_ON(uffdio_dma_copy == NULL);
 	dst_start = uffdio_dma_copy->dst;
 	src_start = uffdio_dma_copy->src;
 	len = uffdio_dma_copy->len;
+	src_end = src_start + len;
 
 	/*
 	 * Sanitize the command parameters:
@@ -765,6 +835,47 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		goto out_unlock;
 #endif
 
+	err = 0;
+        present = page_walk(src_start);
+        printk("wei: src_start present is %d\n", present);
+
+        present = page_walk(src_end-1);
+        printk("wei: src_end_1 present is %d\n", present);
+
+        present = page_walk(src_end);
+        printk("wei: src_end present is %d\n", present);
+
+	//printk("wei, src_start content=%c\n", *(char*)src_start);
+	//printk("wei, src_end content=%c\n", *(char*)src_end);
+
+	char *src_start_char = (char *)src_start;
+	#if 0
+	for (i = 0; i < len; i++) {
+		printk("%c", src_start_char[i]);
+	}
+	printk("wei\n");
+	#endif
+
+
+
+	char *src = kzalloc(len, GFP_USER);
+	if (!src) {
+		printk("wei: kzalloc fails\n");
+		goto unmap_src;
+	}
+
+	printk("wei: mm->pgd:%p\n", mm->pgd);	
+	printk("wei: dst_mm->pgd:%p\n", dst_mm->pgd);	
+	/* Fill in src buffer */
+	for (i = 0; i < len; i++) {
+		src[i] = 'A';
+		//printk("wei: src i %d addr %p\n", i, src + i);
+		//printk("wei: src_start_char i %d addr %p\n", i, src_start_char + i);
+		//src[i] = src_start_char[i];
+        }
+	src_start = (u64)src;
+	printk("wei: src_start=%llu, src addr=%pK\n", src_start, src);
+
 	//memset(src_start, 'B', len);
 	//TODO from virtual addr to physical addr
 	src_phys = virt_to_phys(src_start);
@@ -775,34 +886,6 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	if (mm != dst_mm) {
 		printk("wei: current mm != dst_mm\n");
 	}
-	pgd = pgd_offset(mm, src_start);
-	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd))) {
-		printk("wei: pgd bad or none\n");
-		goto unmap_src;
-	}
-
-	p4d = p4d_offset(pgd, src_start);
-	if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d))) {
-		printk("wei: p4d bad or none\n");
-		goto unmap_src;
-	}
-
-	pud = pud_offset(p4d, src_start);
-	if (pud_none(*pud) || unlikely(pud_bad(*pud))) {
-		printk("wei: pud bad or none\n");
-		goto unmap_src;
-	}
-
-	pmd = pmd_offset(pud, src_start);
-	if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd))) {
-		printk("wei: pmd bad or none\n");
-		goto unmap_src;
-	}
-
-	pte = pte_offset_kernel(pmd, src_start);
-	present = pte_present(*pte);
-	printk("wei: src_page present is %d\n", present);
-	
 
 	src_phys = dma_map_single(dev, src_start, len, DMA_FROM_DEVICE);
 	if (dma_mapping_error(dev, src_phys)) {
@@ -822,7 +905,9 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 			src_start, dst_start, src_phys, dst_phys);
 
 	printk("wei: use ioat_dma_self_test\n");
-	ioat_dma_self_test(to_ioat_chan(chan)->ioat_dma, src_start, dst_start, len);
+	ioat_dma_self_test(to_ioat_chan(chan)->ioat_dma, src, dst_start, len);
+	copied += len;
+	
 #if 0
 	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (tx == NULL) {
@@ -861,6 +946,7 @@ out:
 	BUG_ON(copied < 0);
 	BUG_ON(err > 0);
 	BUG_ON(!copied && !err);
+        printk("wei: at the end of __dma_copy__, copied=%d, err=%d\n", copied, err);
 	return copied ? copied : err;
 }
 

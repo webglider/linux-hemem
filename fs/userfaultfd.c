@@ -30,6 +30,68 @@
 #include <linux/security.h>
 #include <linux/hugetlb.h>
 
+static int bad_address(void *p)
+{
+	unsigned long dummy;
+
+	return probe_kernel_address((unsigned long *)p, dummy);
+}
+
+void userfaultfd_dump_pagetable(unsigned long address)
+{
+	pgd_t *base = __va(read_cr3_pa());
+	pgd_t *pgd = base + pgd_index(address);
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	printk("wei in userfaultfd_dump_pagetable, base:%p, mm->pgd:%p, address:%llu, pid=%d, tgid=%d\n", base, current->mm->pgd, address, current->pid, current->tgid);
+
+	if (bad_address(pgd))
+		goto bad;
+
+	pr_info("PGD %016lx ", pgd_val(*pgd));
+
+	if (!pgd_present(*pgd))
+		goto out;
+
+	p4d = p4d_offset(pgd, address);
+	if (bad_address(p4d))
+		goto bad;
+
+	pr_cont("P4D %016lx ", p4d_val(*p4d));
+	if (!p4d_present(*p4d) || p4d_large(*p4d))
+		goto out;
+
+	pud = pud_offset(p4d, address);
+	if (bad_address(pud))
+		goto bad;
+
+	pr_cont("PUD %016lx ", pud_val(*pud));
+	if (!pud_present(*pud) || pud_large(*pud))
+		goto out;
+
+	pmd = pmd_offset(pud, address);
+	if (bad_address(pmd))
+		goto bad;
+
+	pr_cont("PMD %016lx ", pmd_val(*pmd));
+	if (!pmd_present(*pmd) || pmd_large(*pmd))
+		goto out;
+
+	pte = pte_offset_kernel(pmd, address);
+	if (bad_address(pte))
+		goto bad;
+
+	pr_cont("PTE %016lx", pte_val(*pte));
+out:
+	pr_cont("\n");
+	return;
+bad:
+	pr_info("BAD\n");
+}
+
 static struct kmem_cache *userfaultfd_ctx_cachep __read_mostly;
 
 enum userfaultfd_state {
@@ -1975,6 +2037,8 @@ static int userfaultfd_bad_address(void *p)
 static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
                      unsigned long arg)
 {
+  int i = 0;
+  char* char_addr;
   int ret1 = -1, ret2 = 0;
   unsigned long address;
   unsigned long flag1, flag2;
@@ -1997,6 +2061,17 @@ static int userfaultfd_get_flag(struct userfaultfd_ctx *ctx,
   address = uffdio_page_flags.va;
   flag1 = uffdio_page_flags.flag1;
   flag2 = uffdio_page_flags.flag2;
+
+  printk("wei, in userfaultfd_get_flag\n"); 
+  userfaultfd_dump_pagetable(address);
+  char_addr = (char*)address;
+ 
+  #if 0 
+  for (i = 0; i < 32; i++) {
+      printk("wei, in userfaultfd_get_flag %c\n", char_addr[i]);
+  } 
+  printk("\n");
+  #endif
 
   pgd = base + pgd_index(address);
 	if (userfaultfd_bad_address(pgd))
@@ -2179,6 +2254,7 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
         goto out;
     if (mmget_not_zero(ctx->mm)) {
         ret = dma_mcopy_pages(ctx->mm, &uffdio_dma_copy, &ctx->mmap_changing);
+	printk("wei: dma_mcopy_pages:%d bytes\n", ret);
         mmput(ctx->mm);
     } else {
         return -ESRCH;
@@ -2194,7 +2270,9 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
         range.start = uffdio_dma_copy.dst;
         wake_userfault(ctx, &range);
     }
-    ret = range.len == uffdio_dma_copy.len ? 0 : -EAGAIN;
+    printk("wei: range.len=%d, uffdio_dma_copy.len=%d\n", range.len, uffdio_dma_copy.len);
+    ret = ((range.len == uffdio_dma_copy.len) ? 0 : -EAGAIN);
+    printk("wei: at the end of userfaultfd_dma_copy, ret=%d\n", ret);
 out:
     return ret;
 }
