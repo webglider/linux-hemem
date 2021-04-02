@@ -291,10 +291,12 @@ struct uffdio_page_flags {
   __u64 res2;   // result of operation (flag2 value)
 };
 
+#define DMA_BATCH 32
 struct uffdio_dma_copy {
-    __u64 dst;
-    __u64 src;
-    __u64 len;
+    __u64 dst[DMA_BATCH];
+    __u64 src[DMA_BATCH];
+    __u64 len[DMA_BATCH];
+    __u64 count;
 
     /*
      * There will be a wrprotection flag later that allows to map

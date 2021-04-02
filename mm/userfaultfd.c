@@ -32,9 +32,17 @@
 #include <linux/pci.h>
 #include "../drivers/dma/ioat/dma.h"
 #include <asm/pgtable.h>
+#include <linux/mutex.h>
 
 static volatile int dma_finished = 0;
 static DECLARE_WAIT_QUEUE_HEAD(wq);
+u64 wakeup_count = 0;
+
+struct tx_dma_param {
+	struct mutex tx_dma_mutex;
+	u64 count;
+	u64 wakeup_count;
+};
 
 /*
  * Find a valid userfault enabled VMA region that covers the whole
@@ -656,8 +664,15 @@ out:
 
 static void hemem_dma_tx_callback(void *dma_async_param)
 {
+	struct tx_dma_param *tx_dma_param = (struct tx_dma_param*)dma_async_param;
+	struct mutex *tx_dma_mutex = &(tx_dma_param->tx_dma_mutex);
 	printk("wei: in tx_callback, before wake_up_interrutible\n");
-	dma_finished = 1;
+  	mutex_lock(tx_dma_mutex);
+	(tx_dma_param->wakeup_count)++;
+	if (tx_dma_param->wakeup_count < tx_dma_param->count) {
+		return;
+	}
+  	mutex_unlock(tx_dma_mutex);
 	wake_up_interruptible(&wq);
 	printk("wei: in tx_callback, after wake_up_interrutible\n");
 }
@@ -746,7 +761,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 {
 	struct vm_area_struct *dst_vma;
 	ssize_t err;
-	long copied;
+	long copied = 0;
 	bool wp_copy;
 	volatile u64 src_start;
 	volatile u64 dst_start;
@@ -754,6 +769,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	u64 len;
 	volatile dma_addr_t src_phys;
 	volatile dma_addr_t dst_phys;
+	struct dma_chan *chans[DMA_BATCH] = {NULL};
 	struct dma_chan *chan = NULL;
 	dma_cap_mask_t mask;
 	struct dma_async_tx_descriptor *tx = NULL;
@@ -762,44 +778,18 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	struct device *dev;
 	struct mm_struct *mm = current->mm;
 	int present;
-	int i;
+	u64 index = 0;
+	u64 count = 0;
+	struct tx_dma_param tx_dma_param;
+	memset(&tx_dma_param, 0, sizeof(struct tx_dma_param));
 
-	//TODO, for now only do one page
 	BUG_ON(uffdio_dma_copy == NULL);
-	dst_start = uffdio_dma_copy->dst;
-	src_start = uffdio_dma_copy->src;
-	len = uffdio_dma_copy->len;
-	src_end = src_start + len;
+	count = uffdio_dma_copy->count;
 
-	/*
-	 * Sanitize the command parameters:
-	 */
-	BUG_ON(dst_start & ~PAGE_MASK);
-	BUG_ON(len & ~PAGE_MASK);
-
-	/* Does the address range wrap, or is the span zero-sized? */
-	BUG_ON(src_start + len <= src_start);
-	BUG_ON(dst_start + len <= dst_start);
-
-	copied = 0;
-
-	dma_cap_zero(mask);
-	dma_cap_set(DMA_MEMCPY, mask);
-	chan = dma_request_channel(mask, NULL, NULL);
-	dma = chan->device;
-	dev = dma->dev;
-
-	printk("wei: chan device id: %d, device int name: %s, device type name: %s\n", 
-			chan->device->dev_id,
-			chan->device->dev->init_name,
-			chan->device->dev->type->name);
-
-	printk("wei: mm_userfaultfd.c, chan addr: %p, chan_id: %d, table_count:%d, client_count:%d\n", chan, chan->chan_id, chan->table_count, chan->client_count);
-	printk("wei: func device_issue_pending: %pF at address: %p", chan->device->device_issue_pending, chan->device->device_issue_pending);
-	if (chan == NULL) {
-		printk("wei: error when dma_request_channel\n");
-		goto out;
+	if (mm != dst_mm) {
+		printk("wei: current mm != dst_mm\n");
 	}
+
 
 	down_read(&dst_mm->mmap_sem);
 
@@ -811,6 +801,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	err = -EAGAIN;
 	if (mmap_changing && READ_ONCE(*mmap_changing))
 		goto out_unlock;
+
 
 #if 0
 	/*
@@ -842,133 +833,97 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		goto out_unlock;
 #endif
 
-	err = 0;
-        present = page_walk(src_start, &src_phys);
-        printk("wei: src_start present is %d\n", present);
-        present = page_walk(dst_start, &dst_phys);
-        printk("wei: dst_start present is %d\n", present);
+	mutex_init(&(tx_dma_param.tx_dma_mutex));
+	tx_dma_param.wakeup_count = 0;
+	tx_dma_param.count = count;
+	dma_cap_zero(mask);
+	dma_cap_set(DMA_MEMCPY, mask);
+	while (index < count) {
+		chan = dma_request_channel(mask, NULL, NULL);
+		if (chan == NULL) {
+			printk("wei: error when dma_request_channel, index=%d, count=%llu\n", index, count);
+			goto out_unlock;
+		}
 
-	#if 1
-
-	#if 0
-        present = page_walk(src_end-1);
-        printk("wei: src_end_1 present is %d\n", present);
-
-        present = page_walk(src_end);
-        printk("wei: src_end present is %d\n", present);
-	#endif
-
-	//printk("wei, src_start content=%c\n", *(char*)src_start);
-	//printk("wei, src_end content=%c\n", *(char*)src_end);
-
-	char *src_start_char = (char *)src_start;
-	#if 0
-	for (i = 0; i < len; i++) {
-		printk("%c", src_start_char[i]);
-	}
-	printk("wei\n");
-	#endif
-
-	printk("Before kzmalloc\n");
-//	src_phys = virt_to_phys(src_start);
-//	dst_phys = virt_to_phys(dst_start);
-	printk("wei: virt_to_phys src_start=%llu, src_end=%llu, dst_start=%llu, dst_end=%llu, src_phys=%llu, src_end_phys=%llu, dst_phys=%llu, dst_end_phys=%llu\n",
-			src_start, src_start+len, dst_start, dst_start+len, src_phys, virt_to_phys(src_start+len), dst_phys, virt_to_phys(dst_start+len));
-
-
-	char *src = kzalloc(len, GFP_USER);
-	if (!src) {
-		printk("wei: kzalloc fails\n");
-		//goto unmap_src;
+		chans[index] = chan;
 	}
 
-	printk("wei: mm->pgd:%p\n", mm->pgd);	
-	printk("wei: dst_mm->pgd:%p\n", dst_mm->pgd);	
-	/* Fill in src buffer */
-	for (i = 0; i < len; i++) {
-		src[i] = 'A';
-		//printk("wei: src i %d addr %p\n", i, src + i);
-		//printk("wei: src_start_char i %d addr %p\n", i, src_start_char + i);
-		//src[i] = src_start_char[i];
-        }
-//	src_start = (u64)src;
-	printk("wei: src_start=%llu, src addr=%pK\n", src_start, src);
+	index = 0;
+	while (index < count) {
+		dst_start = uffdio_dma_copy->dst[index];
+		src_start = uffdio_dma_copy->src[index];
+		len = uffdio_dma_copy->len[index];
 
-	//memset(src_start, 'B', len);
-	//TODO from virtual addr to physical addr
-	
-	printk("After kzmalloc\n");
-//	src_phys = virt_to_phys(src_start);
-//	dst_phys = virt_to_phys(dst_start);
-	#endif
-	printk("wei: virt_to_phys src_start=%llu, src_end=%llu, dst_start=%llu, dst_end=%llu, src_phys=%llu, src_end_phys=%llu, dst_phys=%llu, dst_end_phys=%llu\n",
-			src_start, src_start+len, dst_start, dst_start+len, src_phys, virt_to_phys(src_start+len), dst_phys, virt_to_phys(dst_start+len));
+		/*
+		 * Sanitize the command parameters:
+		 */
+		BUG_ON(dst_start & ~PAGE_MASK);
+		BUG_ON(len & ~PAGE_MASK);
 
-	if (mm != dst_mm) {
-		printk("wei: current mm != dst_mm\n");
+		/* Does the address range wrap, or is the span zero-sized? */
+		BUG_ON(src_start + len <= src_start);
+		BUG_ON(dst_start + len <= dst_start);
+
+		src_end = src_start + len;
+
+		chan = chans[index];
+		
+		dma = chan->device;
+		dev = dma->dev;
+		printk("wei: mm_userfaultfd.c, chan addr: %p, chan_id: %d, table_count:%d, client_count:%d\n", chan, chan->chan_id, chan->table_count, chan->client_count);
+		printk("wei: func device_issue_pending: %pF at address: %p", chan->device->device_issue_pending, chan->device->device_issue_pending);
+
+		printk("wei: chan device id: %d, device int name: %s, device type name: %s\n", 
+				chan->device->dev_id,
+				chan->device->dev->init_name,
+				chan->device->dev->type->name);
+		err = 0;
+		present = page_walk(src_start, &src_phys);
+		printk("wei: src_start present is %d\n", present);
+		present = page_walk(dst_start, &dst_phys);
+		printk("wei: dst_start present is %d\n", present);
+
+		printk("wei: src_start=%llu, src_end=%llu, dst_start=%llu, dst_end=%llu, src_phys=%llu, dst_phys=%llu\n",
+			src_start, src_start+len, dst_start, dst_start+len, src_phys, dst_phys);
+
+		tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+		if (tx == NULL) {
+			printk("wei: error when dmaengine_prep_dma_memcpy\n");
+			goto out_unlock;
+		}
+
+		tx->callback = hemem_dma_tx_callback;
+		tx->callback_param = &tx_dma_param;
+		tx->cookie = chan->cookie;
+		printk("wei: in mm_userfaultfd.c, tx callback name: %pF, tx callback addr:%p\n", tx->callback, tx->callback);
+		dma_cookie = dmaengine_submit(tx);
+		if (dma_submit_error(dma_cookie)) {
+			printk("wei: Failed to do DMA tx_submit\n");
+			goto out_unlock;
+		}
+
+		dma_async_issue_pending(chan);
+
+
 	}
 
-	#if 0
-	src_phys = dma_map_single(dev, src_start, len, DMA_FROM_DEVICE);
-	if (dma_mapping_error(dev, src_phys)) {
-		printk("wei: mapping src buffer failed\n");
-		err = -ENOMEM;
-		goto unmap_src;
-	}
-
-	dst_phys = dma_map_single(dev, dst_start, len, DMA_TO_DEVICE);
-	if (dma_mapping_error(dev, dst_phys)) {
-		printk("wei: mapping dst buffer failed\n");
-		err = -ENOMEM;
-		goto unmap_dma;
-	}
-
-	printk("wei: dma_map_single src_start=%llu, dst_start=%llu, src_phys=%llu, dst_phys=%llu\n",
-			src_start, dst_start, src_phys, dst_phys);
-
-	printk("wei: use ioat_dma_self_test\n");
-	ioat_dma_self_test(to_ioat_chan(chan)->ioat_dma, src_start, dst_start, len);
-	copied += len;
-	#endif
-	
-#if 1
-	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-	if (tx == NULL) {
-		printk("wei: error when dmaengine_prep_dma_memcpy\n");
-		goto unmap_dma;
-	}
-
-	tx->callback = hemem_dma_tx_callback;
-	tx->cookie = chan->cookie;
-	printk("wei: in mm_userfaultfd.c, tx callback name: %pF, tx callback addr:%p\n", tx->callback, tx->callback);
-	//tx->callback = NULL;
-	dma_cookie = dmaengine_submit(tx);
-	if (dma_submit_error(dma_cookie)) {
-		printk("wei: Failed to do DMA tx_submit\n");
-		goto unmap_dma;
-	}
-
-	dma_async_issue_pending(chan);
-	//dma_sync_wait(chan, dma_cookie);
-	printk("wei: after dma_async_issue_pending, before wait_event_interruptible\n");
+	printk("wei: before wait_event_interruptible\n");
 	wait_event_interruptible(wq, dma_finished);
-	//mdelay(1000);
 	printk("wei: after wait_event_interruptible\n");
-	copied += len;
-#endif
+	for (index = 0; index < count; index++) {
+		copied += uffdio_dma_copy->len[index];
+	}
 
-#if 0
-unmap_dma:
-	dma_unmap_single(dev, dst_phys, len, DMA_TO_DEVICE);
-unmap_src:
-	dma_unmap_single(dev, src_phys, len, DMA_FROM_DEVICE);
-#endif
-unmap_dma:
 out_unlock:
 	up_read(&dst_mm->mmap_sem);
 out:
-	if (chan)
-		dma_release_channel(chan);
+	index = 0;
+	while (index < count) {
+		if (chans[index]) {
+			dma_release_channel(chans[index]);
+		}
+		index++;
+	}
 	BUG_ON(copied < 0);
 	BUG_ON(err > 0);
 	BUG_ON(!copied && !err);

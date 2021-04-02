@@ -2225,6 +2225,7 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
     struct uffdio_dma_copy uffdio_dma_copy;
     struct uffdio_dma_copy __user *user_uffdio_dma_copy;
     struct userfaultfd_wake_range range;
+    int index = 0;
 
     user_uffdio_dma_copy = (struct uffdio_dma_copy __user *) arg;
    
@@ -2239,19 +2240,22 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
 	       sizeof(uffdio_dma_copy)-sizeof(__s64)))
         goto out;
 
+    u64 count = uffdio_dma_copy.count;
     printk("wei: start validate_range\n");
-    ret = validate_range(ctx->mm, uffdio_dma_copy.dst, uffdio_dma_copy.len);
-    if (ret)
-        goto out;
+   
+    while (index < count) {
+	printk("wei: index %d, len:%llu, count:%llu\n", index, uffdio_dma_copy.len[index], count);
+        ret = validate_range(ctx->mm, uffdio_dma_copy.dst[index], uffdio_dma_copy.len[index]);
+        if (ret)
+            goto out;
+	index++;
+    }
     /*
      * double check for wraparound just in case. copy_from_user()
      * will later check uffdio_copy.src + uffdio_copy.len to fit
      * in the userland range.
      */
     ret = -EINVAL;
-    printk("wei: in userfaultfd_dma_copy, src: %llu, dst: %llu\n", uffdio_dma_copy.src, uffdio_dma_copy.dst);
-    if (uffdio_dma_copy.src + uffdio_dma_copy.len <= uffdio_dma_copy.src)
-        goto out;
     if (mmget_not_zero(ctx->mm)) {
         ret = dma_mcopy_pages(ctx->mm, &uffdio_dma_copy, &ctx->mmap_changing);
 	printk("wei: dma_mcopy_pages:%d bytes\n", ret);
