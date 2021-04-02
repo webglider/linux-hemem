@@ -26,6 +26,7 @@
 #include <linux/interrupt.h>
 #include "registers.h"
 #include "hw.h"
+#include <asm/pgtable.h>
 
 #define IOAT_DMA_VERSION  "5.00"
 
@@ -425,6 +426,83 @@ static inline void ioat_dma_test_callback(void *dma_async_param)
 	complete(cmp);
 }
 
+static int inline bad_address(void *p)
+{
+        unsigned long dummy;
+
+        return probe_kernel_address((unsigned long *)p, dummy);
+}
+
+static int  inline page_walk(u64 address, u64* phy_addr)
+{
+
+        pgd_t *base = __va(read_cr3_pa());
+        pgd_t *pgd = base + pgd_index(address);
+        p4d_t *p4d;
+        pud_t *pud;
+        pmd_t *pmd;
+        pte_t *pte;
+        u64 page_addr;
+        u64 page_offset;
+        int present = 0;
+        int write = 0;
+
+        printk("wei: in page_walk, base:%p, current->mm->pgd:%p, address:%llu, pid=%d, tgid=%d\n", base, current->mm->pgd, address, current->pid, current->tgid);
+
+        if (bad_address(pgd))
+                goto bad;
+
+        pr_info("PGD %016lx ", pgd_val(*pgd));
+
+        if (!pgd_present(*pgd))
+                goto out;
+
+        p4d = p4d_offset(pgd, address);
+        if (bad_address(p4d))
+                goto bad;
+        pr_cont("P4D %016lx ", p4d_val(*p4d));
+        if (!p4d_present(*p4d) || p4d_large(*p4d))
+                goto out;
+
+        pud = pud_offset(p4d, address);
+        if (bad_address(pud))
+                goto bad;
+
+        pr_cont("PUD %016lx ", pud_val(*pud));
+        if (!pud_present(*pud) || pud_large(*pud))
+                goto out;
+
+        pmd = pmd_offset(pud, address);
+        if (bad_address(pmd))
+                goto bad;
+
+        pr_cont("PMD %016lx ", pmd_val(*pmd));
+        if (!pmd_present(*pmd) || pmd_large(*pmd))
+                goto out;
+
+        pte = pte_offset_kernel(pmd, address);
+        if (bad_address(pte))
+                goto bad;
+        present = pte_present(*pte);
+        write = pte_write(*pte);
+        page_addr = pte_val(*pte) & PAGE_MASK;
+	//page_addr = pte_val(*pte) & PTE_PHYS_MASK;
+        page_addr = pte_val(*pte) & PAGE_MASK;
+        page_offset = address & ~PAGE_MASK;
+        *phy_addr = page_addr | page_offset;
+        *phy_addr -= 9223372036854775808;
+
+        printk("wei: base %p, addr %llu, present %d, write: %d, phy_addr:%llu\n", base, address, present, write, *phy_addr);
+
+        pr_cont("PTE %016lx", pte_val(*pte));
+out:
+        pr_cont("\n");
+        return present;
+bad:
+        pr_info("BAD\n");
+        return present;
+}
+
 static inline int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u64 dest, u64 len)
 {
 	int i;
@@ -466,6 +544,7 @@ static inline int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u
 		goto out;
 	}
 
+	#if 0
 	//dma_src = dma_map_single(dev, src, IOAT_TEST_SIZE, DMA_TO_DEVICE);
 	dma_src = dma_map_single(dev, src, len, DMA_TO_DEVICE);
 	if (dma_mapping_error(dev, dma_src)) {
@@ -480,6 +559,11 @@ static inline int ioat_dma_self_test(struct ioatdma_device *ioat_dma, u64 src, u
 		err = -ENOMEM;
 		goto unmap_src;
 	}
+	#endif
+
+	page_walk(src, &dma_src);
+	page_walk(dest, &dma_dest);
+
 	flags = DMA_PREP_INTERRUPT;
 	tx = ioat_dma->dma_dev.device_prep_dma_memcpy(dma_chan, dma_dest,
 						      dma_src, len,

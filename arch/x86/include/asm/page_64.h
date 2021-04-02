@@ -6,6 +6,7 @@
 
 #ifndef __ASSEMBLY__
 #include <asm/alternative.h>
+#include <linux/kernel.h>
 
 /* duplicated to the one in bootmem.h */
 extern unsigned long max_pfn;

@@ -663,6 +663,7 @@ static void hemem_dma_tx_callback(void *dma_async_param)
 }
 
 
+#if 0
 static int bad_address(void *p)
 {
 	unsigned long dummy;
@@ -670,7 +671,7 @@ static int bad_address(void *p)
 	return probe_kernel_address((unsigned long *)p, dummy);
 }
 
-static int  page_walk(u64 address)
+static int  page_walk(u64 address, u64* phy_addr)
 {
 
 	pgd_t *base = __va(read_cr3_pa());
@@ -679,6 +680,8 @@ static int  page_walk(u64 address)
         pud_t *pud;
         pmd_t *pmd;
         pte_t *pte;
+	u64 page_addr;
+	u64 page_offset;
  	int present = 0;	
 	int write = 0;
 
@@ -722,7 +725,11 @@ static int  page_walk(u64 address)
 
         present = pte_present(*pte);
         write = pte_write(*pte);
-	printk("wei: base %p, addr %llu, present %d, write: %d\n", base, address, present, write);
+	page_addr = pte_val(*pte) & PAGE_MASK;
+	page_offset = address & ~PAGE_MASK;
+	*phy_addr = page_addr | page_offset;
+	
+	printk("wei: base %p, addr %llu, present %d, write: %d, phy_addr:%llu\n", base, address, present, write, *phy_addr);
 
 	pr_cont("PTE %016lx", pte_val(*pte));
 out:
@@ -732,7 +739,7 @@ bad:
 	pr_info("BAD\n");
 	return present;
 }
-
+#endif
 static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 					      struct uffdio_dma_copy *uffdio_dma_copy,
 					      bool *mmap_changing)
@@ -836,14 +843,20 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 #endif
 
 	err = 0;
-        present = page_walk(src_start);
+        present = page_walk(src_start, &src_phys);
         printk("wei: src_start present is %d\n", present);
+        present = page_walk(dst_start, &dst_phys);
+        printk("wei: dst_start present is %d\n", present);
 
+	#if 1
+
+	#if 0
         present = page_walk(src_end-1);
         printk("wei: src_end_1 present is %d\n", present);
 
         present = page_walk(src_end);
         printk("wei: src_end present is %d\n", present);
+	#endif
 
 	//printk("wei, src_start content=%c\n", *(char*)src_start);
 	//printk("wei, src_end content=%c\n", *(char*)src_end);
@@ -856,12 +869,17 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	printk("wei\n");
 	#endif
 
+	printk("Before kzmalloc\n");
+//	src_phys = virt_to_phys(src_start);
+//	dst_phys = virt_to_phys(dst_start);
+	printk("wei: virt_to_phys src_start=%llu, src_end=%llu, dst_start=%llu, dst_end=%llu, src_phys=%llu, src_end_phys=%llu, dst_phys=%llu, dst_end_phys=%llu\n",
+			src_start, src_start+len, dst_start, dst_start+len, src_phys, virt_to_phys(src_start+len), dst_phys, virt_to_phys(dst_start+len));
 
 
 	char *src = kzalloc(len, GFP_USER);
 	if (!src) {
 		printk("wei: kzalloc fails\n");
-		goto unmap_src;
+		//goto unmap_src;
 	}
 
 	printk("wei: mm->pgd:%p\n", mm->pgd);	
@@ -873,13 +891,16 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		//printk("wei: src_start_char i %d addr %p\n", i, src_start_char + i);
 		//src[i] = src_start_char[i];
         }
-	src_start = (u64)src;
+//	src_start = (u64)src;
 	printk("wei: src_start=%llu, src addr=%pK\n", src_start, src);
 
 	//memset(src_start, 'B', len);
 	//TODO from virtual addr to physical addr
-	src_phys = virt_to_phys(src_start);
-	dst_phys = virt_to_phys(dst_start);
+	
+	printk("After kzmalloc\n");
+//	src_phys = virt_to_phys(src_start);
+//	dst_phys = virt_to_phys(dst_start);
+	#endif
 	printk("wei: virt_to_phys src_start=%llu, src_end=%llu, dst_start=%llu, dst_end=%llu, src_phys=%llu, src_end_phys=%llu, dst_phys=%llu, dst_end_phys=%llu\n",
 			src_start, src_start+len, dst_start, dst_start+len, src_phys, virt_to_phys(src_start+len), dst_phys, virt_to_phys(dst_start+len));
 
@@ -887,6 +908,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		printk("wei: current mm != dst_mm\n");
 	}
 
+	#if 0
 	src_phys = dma_map_single(dev, src_start, len, DMA_FROM_DEVICE);
 	if (dma_mapping_error(dev, src_phys)) {
 		printk("wei: mapping src buffer failed\n");
@@ -905,10 +927,11 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 			src_start, dst_start, src_phys, dst_phys);
 
 	printk("wei: use ioat_dma_self_test\n");
-	ioat_dma_self_test(to_ioat_chan(chan)->ioat_dma, src, dst_start, len);
+	ioat_dma_self_test(to_ioat_chan(chan)->ioat_dma, src_start, dst_start, len);
 	copied += len;
+	#endif
 	
-#if 0
+#if 1
 	tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (tx == NULL) {
 		printk("wei: error when dmaengine_prep_dma_memcpy\n");
@@ -934,10 +957,13 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	copied += len;
 #endif
 
+#if 0
 unmap_dma:
 	dma_unmap_single(dev, dst_phys, len, DMA_TO_DEVICE);
 unmap_src:
 	dma_unmap_single(dev, src_phys, len, DMA_FROM_DEVICE);
+#endif
+unmap_dma:
 out_unlock:
 	up_read(&dst_mm->mmap_sem);
 out:
