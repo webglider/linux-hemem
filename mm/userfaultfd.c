@@ -846,6 +846,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		}
 
 		chans[index] = chan;
+		index++;
 	}
 
 	index = 0;
