@@ -2226,6 +2226,7 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
     struct uffdio_dma_copy __user *user_uffdio_dma_copy;
     struct userfaultfd_wake_range range;
     int index = 0;
+    u64 expected_len = 0;
 
     user_uffdio_dma_copy = (struct uffdio_dma_copy __user *) arg;
    
@@ -2248,6 +2249,7 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
         ret = validate_range(ctx->mm, uffdio_dma_copy.dst[index], uffdio_dma_copy.len[index]);
         if (ret)
             goto out;
+	expected_len += uffdio_dma_copy.len[index];
 	index++;
     }
     /*
@@ -2270,12 +2272,16 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
     BUG_ON(!ret);
     /* len == 0 would wake all */
     range.len = ret;
+
+    #if 0
     if (!(uffdio_dma_copy.mode & UFFDIO_COPY_MODE_DONTWAKE)) {
         range.start = uffdio_dma_copy.dst;
         wake_userfault(ctx, &range);
     }
-    printk("wei: range.len=%d, uffdio_dma_copy.len=%d\n", range.len, uffdio_dma_copy.len);
-    ret = ((range.len == uffdio_dma_copy.len) ? 0 : -EAGAIN);
+    #endif
+
+    printk("wei: copied_len=%d, expected_len=%d\n", range.len, expected_len);
+    ret = ((range.len == expected_len) ? 0 : -EAGAIN);
     printk("wei: at the end of userfaultfd_dma_copy, ret=%d\n", ret);
 out:
     return ret;

@@ -669,7 +669,9 @@ static void hemem_dma_tx_callback(void *dma_async_param)
 	printk("wei: in tx_callback, before wake_up_interrutible\n");
   	mutex_lock(tx_dma_mutex);
 	(tx_dma_param->wakeup_count)++;
+	printk("wei: in tx_callback, wakeup_count=%llu, count=%llu\n", tx_dma_param->wakeup_count, tx_dma_param->count);
 	if (tx_dma_param->wakeup_count < tx_dma_param->count) {
+  		mutex_unlock(tx_dma_mutex);
 		return;
 	}
   	mutex_unlock(tx_dma_mutex);
@@ -904,8 +906,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		}
 
 		dma_async_issue_pending(chan);
-
-
+		index++;
 	}
 
 	printk("wei: before wait_event_interruptible\n");
