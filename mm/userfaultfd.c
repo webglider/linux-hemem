@@ -34,12 +34,13 @@
 #include <asm/pgtable.h>
 #include <linux/mutex.h>
 
+#define MAX_DMA_CHANS 16
+#define MAX_LEN_PER_DMA_OP 4096
 static DECLARE_WAIT_QUEUE_HEAD(wq);
-u64 wakeup_count = 0;
 
 struct tx_dma_param {
 	struct mutex tx_dma_mutex;
-	u64 count;
+	u64 expect_count;
 	volatile u64 wakeup_count;
 };
 
@@ -668,8 +669,8 @@ static void hemem_dma_tx_callback(void *dma_async_param)
 	printk("wei: in tx_callback, before wake_up_interrutible\n");
   	mutex_lock(tx_dma_mutex);
 	(tx_dma_param->wakeup_count)++;
-	printk("wei: in tx_callback, wakeup_count=%llu, count=%llu\n", tx_dma_param->wakeup_count, tx_dma_param->count);
-	if (tx_dma_param->wakeup_count < tx_dma_param->count) {
+	printk("wei: in tx_callback, wakeup_count=%llu, count=%llu\n", tx_dma_param->wakeup_count, tx_dma_param->expect_count);
+	if (tx_dma_param->wakeup_count < tx_dma_param->expect_count) {
   		mutex_unlock(tx_dma_mutex);
 		return;
 	}
@@ -764,12 +765,14 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	ssize_t err;
 	long copied = 0;
 	bool wp_copy;
-	volatile u64 src_start;
-	volatile u64 dst_start;
-	volatile u64 src_end;
+	u64 src_start;
+	u64 dst_start;
+    u64 src_cur;
+    u64 dst_cur;
+	dma_addr_t src_phys;
+	dma_addr_t dst_phys;
 	u64 len;
-	volatile dma_addr_t src_phys;
-	volatile dma_addr_t dst_phys;
+    u64 len_cur;
 	struct dma_chan *chans[DMA_BATCH] = {NULL};
 	struct dma_chan *chan = NULL;
 	dma_cap_mask_t mask;
@@ -779,22 +782,16 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	struct device *dev;
 	struct mm_struct *mm = current->mm;
 	int present;
-	u64 index = 0;
+    int index = 0;
 	u64 count = 0;
+    u64 expect_count = 0;
+    static u64 dma_assign_index = 0;
 	struct tx_dma_param tx_dma_param;
-	memset(&tx_dma_param, 0, sizeof(struct tx_dma_param));
-
-	BUG_ON(uffdio_dma_copy == NULL);
-	count = uffdio_dma_copy->count;
-
-	if (mm != dst_mm) {
-		printk("wei: current mm != dst_mm\n");
-	}
-
+    u64 dma_len = 0;
+    int dma_chans = MAX_DMA_CHANS; 
 
 	down_read(&dst_mm->mmap_sem);
-
-	/*
+    /*
 	 * If memory mappings are changing because of non-cooperative
 	 * operation (e.g. mremap) running in parallel, bail out and
 	 * request the user to retry later
@@ -803,43 +800,28 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	if (mmap_changing && READ_ONCE(*mmap_changing))
 		goto out_unlock;
 
-
-#if 0
-	/*
-	 * Make sure the vma is not shared, that the dst range is
-	 * both valid and fully within a single existing vma.
-	 */
-	err = -ENOENT;
-	dst_vma = vma_find_uffd(dst_mm, dst_start, len);
-	if (!dst_vma) {
-		printk("wei vma_find_uffd fails*****\n");
-		goto out_unlock;
-	}
-
-	err = 0;
-	/*
-	 * shmem_zero_setup is invoked in mmap for MAP_ANONYMOUS|MAP_SHARED but
-	 * it will overwrite vm_ops, so vma_is_anonymous must return false.
-	 */
-	if (WARN_ON_ONCE(vma_is_anonymous(dst_vma) &&
-	    dst_vma->vm_flags & VM_SHARED))
-		goto out_unlock;
-
-	/*
-	 * validate 'mode' now that we know the dst_vma: don't allow
-	 * a wrprotect copy if the userfaultfd didn't register as WP.
-	 */
-	wp_copy = uffdio_dma_copy->mode & UFFDIO_COPY_MODE_WP;
-	if (wp_copy && !(dst_vma->vm_flags & VM_UFFD_WP))
-		goto out_unlock;
-#endif
+	BUG_ON(uffdio_dma_copy == NULL);
+	count = uffdio_dma_copy->count;
+    for (index = 0; index < count; index++) {
+        if (uffdio_dma_copy->len[index] % MAX_LEN_PER_DMA_OP == 0) {
+            expect_count += uffdio_dma_copy->len[index] / MAX_LEN_PER_DMA_OP;
+        }
+        else {
+            expect_count += uffdio_dma_copy->len[index] / MAX_LEN_PER_DMA_OP + 1;
+        }
+    }
 
 	mutex_init(&(tx_dma_param.tx_dma_mutex));
 	tx_dma_param.wakeup_count = 0;
-	tx_dma_param.count = count;
+	tx_dma_param.expect_count = expect_count;
+
+    if (expect_count < MAX_DMA_CHANS) {
+        dma_chans = expect_count; 
+    }
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_MEMCPY, mask);
-	while (index < count) {
+    
+    for (index = 0; index < dma_chans; index++) {
 		chan = dma_request_channel(mask, NULL, NULL);
 		if (chan == NULL) {
 			printk("wei: error when dma_request_channel, index=%d, count=%llu\n", index, count);
@@ -847,11 +829,9 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		}
 
 		chans[index] = chan;
-		index++;
 	}
 
-	index = 0;
-	while (index < count) {
+    for (index  = 0; index < count; index++) {
 		dst_start = uffdio_dma_copy->dst[index];
 		src_start = uffdio_dma_copy->src[index];
 		len = uffdio_dma_copy->len[index];
@@ -866,50 +846,44 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		BUG_ON(src_start + len <= src_start);
 		BUG_ON(dst_start + len <= dst_start);
 
-		src_end = src_start + len;
+        for (src_cur = src_start, dst_cur = dst_start, len_cur = 0; len_cur < len;) {
+            err = 0;
+		    chan = chans[dma_assign_index++ % dma_chans];
+            if (len_cur + MAX_LEN_PER_DMA_OP > len) {
+                dma_len = len - len_cur; 
+            }
+            else {
+                dma_len = MAX_LEN_PER_DMA_OP;
+            }
 
-		chan = chans[index];
-		
-		dma = chan->device;
-		dev = dma->dev;
-		printk("wei: mm_userfaultfd.c, chan addr: %p, chan_id: %d, table_count:%d, client_count:%d\n", chan, chan->chan_id, chan->table_count, chan->client_count);
-		printk("wei: func device_issue_pending: %pF at address: %p", chan->device->device_issue_pending, chan->device->device_issue_pending);
+            page_walk(src_cur, &src_phys);
+            page_walk(dst_cur, &dst_phys);
+            tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, dma_len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+            if (tx == NULL) {
+                printk("wei: error when dmaengine_prep_dma_memcpy\n");
+                goto out_unlock;
+            }
 
-		printk("wei: chan device id: %d, device int name: %s, device type name: %s\n", 
-				chan->device->dev_id,
-				chan->device->dev->init_name,
-				chan->device->dev->type->name);
-		err = 0;
-		present = page_walk(src_start, &src_phys);
-		printk("wei: src_start present is %d\n", present);
-		present = page_walk(dst_start, &dst_phys);
-		printk("wei: dst_start present is %d\n", present);
+            tx->callback = hemem_dma_tx_callback;
+            tx->callback_param = &tx_dma_param;
+            tx->cookie = chan->cookie;
+            dma_cookie = dmaengine_submit(tx);
+            if (dma_submit_error(dma_cookie)) {
+                printk("wei: Failed to do DMA tx_submit\n");
+                goto out_unlock;
+            }
 
-		printk("wei: src_start=%llu, src_end=%llu, dst_start=%llu, dst_end=%llu, src_phys=%llu, dst_phys=%llu\n",
-			src_start, src_start+len, dst_start, dst_start+len, src_phys, dst_phys);
-
-		tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-		if (tx == NULL) {
-			printk("wei: error when dmaengine_prep_dma_memcpy\n");
-			goto out_unlock;
-		}
-
-		tx->callback = hemem_dma_tx_callback;
-		tx->callback_param = &tx_dma_param;
-		tx->cookie = chan->cookie;
-		printk("wei: in mm_userfaultfd.c, tx callback name: %pF, tx callback addr:%p\n", tx->callback, tx->callback);
-		dma_cookie = dmaengine_submit(tx);
-		if (dma_submit_error(dma_cookie)) {
-			printk("wei: Failed to do DMA tx_submit\n");
-			goto out_unlock;
-		}
-
-		dma_async_issue_pending(chan);
-		index++;
+            dma_async_issue_pending(chan);
+            len_cur += dma_len;
+            src_cur += dma_len;
+            dst_cur += dma_len;
+          //  src_phys += dma_len;
+          //  dst_phys += dma_len;
+        }
 	}
 
 	printk("wei: before wait_event_interruptible\n");
-	wait_event_interruptible(wq, tx_dma_param.wakeup_count >= tx_dma_param.count);
+	wait_event_interruptible(wq, tx_dma_param.wakeup_count >= tx_dma_param.expect_count);
 	printk("wei: after wait_event_interruptible\n");
 	for (index = 0; index < count; index++) {
 		copied += uffdio_dma_copy->len[index];
@@ -919,16 +893,15 @@ out_unlock:
 	up_read(&dst_mm->mmap_sem);
 out:
 	index = 0;
-	while (index < count) {
+	for (index = 0; index < dma_chans; index++) {
 		if (chans[index]) {
 			dma_release_channel(chans[index]);
 		}
-		index++;
 	}
 	BUG_ON(copied < 0);
 	BUG_ON(err > 0);
 	BUG_ON(!copied && !err);
-        printk("wei: at the end of __dma_copy__, copied=%d, err=%d\n", copied, err);
+    printk("wei: at the end of __dma_copy__, copied=%d, err=%d\n", copied, err);
 	return copied ? copied : err;
 }
 
