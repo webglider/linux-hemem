@@ -30,7 +30,6 @@
 #include "internal.h"
 #include <linux/delay.h>
 #include <linux/pci.h>
-#include "../drivers/dma/ioat/dma.h"
 #include <asm/pgtable.h>
 #include <linux/mutex.h>
 
@@ -666,21 +665,16 @@ static void hemem_dma_tx_callback(void *dma_async_param)
 {
 	struct tx_dma_param *tx_dma_param = (struct tx_dma_param*)dma_async_param;
 	struct mutex *tx_dma_mutex = &(tx_dma_param->tx_dma_mutex);
-	printk("wei: in tx_callback, before wake_up_interrutible\n");
   	mutex_lock(tx_dma_mutex);
 	(tx_dma_param->wakeup_count)++;
-	printk("wei: in tx_callback, wakeup_count=%llu, count=%llu\n", tx_dma_param->wakeup_count, tx_dma_param->expect_count);
 	if (tx_dma_param->wakeup_count < tx_dma_param->expect_count) {
   		mutex_unlock(tx_dma_mutex);
 		return;
 	}
   	mutex_unlock(tx_dma_mutex);
 	wake_up_interruptible(&wq);
-	printk("wei: in tx_callback, after wake_up_interrutible\n");
 }
 
-
-#if 0
 static int bad_address(void *p)
 {
 	unsigned long dummy;
@@ -688,7 +682,7 @@ static int bad_address(void *p)
 	return probe_kernel_address((unsigned long *)p, dummy);
 }
 
-static int  page_walk(u64 address, u64* phy_addr)
+static void  page_walk(u64 address, u64* phy_addr)
 {
 
 	pgd_t *base = __va(read_cr3_pa());
@@ -702,61 +696,55 @@ static int  page_walk(u64 address, u64* phy_addr)
  	int present = 0;	
 	int write = 0;
 
-        printk("wei: in page_walk, base:%p, current->mm->pgd:%p, address:%llu, pid=%d, tgid=%d\n", base, current->mm->pgd, address, current->pid, current->tgid);
-
 	if (bad_address(pgd))
-		goto bad;
-
-	pr_info("PGD %016lx ", pgd_val(*pgd));
+		goto out;
 
 	if (!pgd_present(*pgd))
 		goto out;
 
 	p4d = p4d_offset(pgd, address);
 	if (bad_address(p4d))
-		goto bad;
+		goto out;
 
-	pr_cont("P4D %016lx ", p4d_val(*p4d));
 	if (!p4d_present(*p4d) || p4d_large(*p4d))
 		goto out;
 
 	pud = pud_offset(p4d, address);
 	if (bad_address(pud))
-		goto bad;
+		goto out;
 
-	pr_cont("PUD %016lx ", pud_val(*pud));
 	if (!pud_present(*pud) || pud_large(*pud))
 		goto out;
 
 	pmd = pmd_offset(pud, address);
 	if (bad_address(pmd))
-		goto bad;
+		goto out;
 
-	pr_cont("PMD %016lx ", pmd_val(*pmd));
 	if (!pmd_present(*pmd) || pmd_large(*pmd))
 		goto out;
 
 	pte = pte_offset_kernel(pmd, address);
 	if (bad_address(pte))
-		goto bad;
+		goto out;
 
-        present = pte_present(*pte);
-        write = pte_write(*pte);
+    present = pte_present(*pte);
+    write = pte_write(*pte);
+    
+    if (present != 1 || write == 0) {
+        printk("in page_walk, address=%llu, present=%d, write=%d\n", address, present, write); 
+    }
+
 	page_addr = pte_val(*pte) & PAGE_MASK;
 	page_offset = address & ~PAGE_MASK;
 	*phy_addr = page_addr | page_offset;
-	
-	printk("wei: base %p, addr %llu, present %d, write: %d, phy_addr:%llu\n", base, address, present, write, *phy_addr);
+    *phy_addr -= 9223372036854775808;
 
-	pr_cont("PTE %016lx", pte_val(*pte));
+    return;
+
 out:
-	pr_cont("\n");
-	return present;
-bad:
 	pr_info("BAD\n");
-	return present;
 }
-#endif
+
 static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 					      struct uffdio_dma_copy *uffdio_dma_copy,
 					      bool *mmap_changing)
@@ -882,9 +870,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
         }
 	}
 
-	printk("wei: before wait_event_interruptible\n");
 	wait_event_interruptible(wq, tx_dma_param.wakeup_count >= tx_dma_param.expect_count);
-	printk("wei: after wait_event_interruptible\n");
 	for (index = 0; index < count; index++) {
 		copied += uffdio_dma_copy->len[index];
 	}

@@ -98,8 +98,6 @@ irqreturn_t ioat_dma_do_interrupt(int irq, void *data)
 
 	intrctrl = readb(instance->reg_base + IOAT_INTRCTRL_OFFSET);
 
-	printk("wei: ioat_dma_do_interrupt\n");
-
 	if (!(intrctrl & IOAT_INTRCTRL_MASTER_INT_EN))
 		return IRQ_NONE;
 
@@ -128,17 +126,8 @@ irqreturn_t ioat_dma_do_interrupt_msix(int irq, void *data)
 {
 	struct ioatdma_chan *ioat_chan = data;
 
-	if (test_bit(IOAT_RUN, &ioat_chan->state)) {
-		printk("wei: ioat_dma_do_interrupt_msix, cleanup_task fun name: %pF at address %p\n",
-				ioat_chan->cleanup_task.func,
-				ioat_chan->cleanup_task.func);
-		printk("wei: chan addr: %p, chan_id: %d, table_count:%d, client_count:%d\n",
-				&(ioat_chan->dma_chan),
-				ioat_chan->dma_chan.chan_id,
-				ioat_chan->dma_chan.table_count,
-				ioat_chan->dma_chan.client_count);
+	if (test_bit(IOAT_RUN, &ioat_chan->state))
 		tasklet_schedule(&ioat_chan->cleanup_task);
-	}
 
 	return IRQ_HANDLED;
 }
@@ -197,7 +186,6 @@ void ioat_issue_pending(struct dma_chan *c)
 
 	if (ioat_ring_pending(ioat_chan)) {
 		spin_lock_bh(&ioat_chan->prep_lock);
-		printk("wei: ioat_issue_pending function\n");
 		__ioat_issue_pending(ioat_chan);
 		spin_unlock_bh(&ioat_chan->prep_lock);
 	}
@@ -341,7 +329,6 @@ static dma_cookie_t ioat_tx_submit_unlock(struct dma_async_tx_descriptor *tx)
 
 	ioat_update_pending(ioat_chan);
 	spin_unlock_bh(&ioat_chan->prep_lock);
-	printk("wei: ioat_tx_submit_unlock\n");
 
 	return cookie;
 }
@@ -554,15 +541,12 @@ static bool ioat_cleanup_preamble(struct ioatdma_chan *ioat_chan,
 				   u64 *phys_complete)
 {
 	*phys_complete = ioat_get_current_completion(ioat_chan);
-	if (*phys_complete == ioat_chan->last_completion) {
-		printk("wei: ioat_cleanup_preamble returns false\n");
+	if (*phys_complete == ioat_chan->last_completion)
 		return false;
-	}
 
 	clear_bit(IOAT_COMPLETION_ACK, &ioat_chan->state);
 	mod_timer(&ioat_chan->timer, jiffies + COMPLETION_TIMEOUT);
 
-	printk("wei: ioat_cleanup_preamble returns true\n");
 	return true;
 }
 
@@ -634,9 +618,7 @@ static void __cleanup(struct ioatdma_chan *ioat_chan, dma_addr_t phys_complete)
 			desc_get_errstat(ioat_chan, desc);
 
 		tx = &desc->txd;
-		printk("wei:__cleanup, cookie=%d\n", tx->cookie);
 		if (tx->cookie) {
-			printk("wei: __cleanup, callback addr:%p\n", tx->callback);
 			dma_cookie_complete(tx);
 			dma_descriptor_unmap(tx);
 			dmaengine_desc_get_callback_invoke(tx, NULL);
@@ -688,10 +670,8 @@ static void ioat_cleanup(struct ioatdma_chan *ioat_chan)
 
 	spin_lock_bh(&ioat_chan->cleanup_lock);
 
-	if (ioat_cleanup_preamble(ioat_chan, &phys_complete)) {
+	if (ioat_cleanup_preamble(ioat_chan, &phys_complete))
 		__cleanup(ioat_chan, phys_complete);
-		printk("wei: ioat_cleanup\n");	
-	}
 
 	if (is_ioat_halted(*ioat_chan->completion)) {
 		u32 chanerr = readl(ioat_chan->reg_base + IOAT_CHANERR_OFFSET);
@@ -710,7 +690,6 @@ void ioat_cleanup_event(unsigned long data)
 {
 	struct ioatdma_chan *ioat_chan = to_ioat_chan((void *)data);
 
-	printk("wei:ioat_cleanup_event\n");
 	ioat_cleanup(ioat_chan);
 	if (!test_bit(IOAT_RUN, &ioat_chan->state))
 		return;
