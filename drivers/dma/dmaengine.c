@@ -289,11 +289,9 @@ enum dma_status dma_sync_wait(struct dma_chan *chan, dma_cookie_t cookie)
 		status = dma_async_is_tx_complete(chan, cookie, NULL, NULL);
 		if (time_after_eq(jiffies, dma_sync_wait_timeout)) {
 			dev_err(chan->device->dev, "%s: timeout!\n", __func__);
-			printk("wei: return DMA_ERROR in dma_sync_wait because of timeout\n");
 			return DMA_ERROR;
 		}
 		if (status != DMA_IN_PROGRESS) {
-			printk("wei: break and return with status %d in dma_sync_wait\n", status);
 			break;
 		}
 		cpu_relax();
@@ -376,7 +374,6 @@ void dma_issue_pending_all(void)
 	list_for_each_entry_rcu(device, &dma_device_list, global_node) {
 		if (dma_has_cap(DMA_PRIVATE, device->cap_mask))
 			continue;
-		printk("wei: dma_issue_pending_all\n");
 		list_for_each_entry(chan, &device->channels, device_node)
 			if (chan->client_count)
 				device->device_issue_pending(chan);

@@ -306,8 +306,6 @@ static void dump_pagetable(unsigned long address)
 	pmd_t *pmd;
 	pte_t *pte;
 
-printk("wei: in dump_pagetable base:%p, current->mm->pgd:%p, address: %llu\n", base, current->mm->pgd, address);
-
 #ifdef CONFIG_X86_PAE
 	pr_info("*pdpt = %016Lx ", pgd_val(*pgd));
 	if (!low_pfn(pgd_val(*pgd) >> PAGE_SHIFT) || !pgd_present(*pgd))
