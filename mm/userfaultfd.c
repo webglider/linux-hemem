@@ -34,14 +34,13 @@
 #include <asm/pgtable.h>
 #include <linux/mutex.h>
 
-static volatile int dma_finished = 0;
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 u64 wakeup_count = 0;
 
 struct tx_dma_param {
 	struct mutex tx_dma_mutex;
 	u64 count;
-	u64 wakeup_count;
+	volatile u64 wakeup_count;
 };
 
 /*
@@ -910,7 +909,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	}
 
 	printk("wei: before wait_event_interruptible\n");
-	wait_event_interruptible(wq, dma_finished);
+	wait_event_interruptible(wq, tx_dma_param.wakeup_count >= tx_dma_param.count);
 	printk("wei: after wait_event_interruptible\n");
 	for (index = 0; index < count; index++) {
 		copied += uffdio_dma_copy->len[index];
