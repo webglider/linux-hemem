@@ -293,7 +293,6 @@ enum dma_status dma_sync_wait(struct dma_chan *chan, dma_cookie_t cookie)
 		}
 		if (status != DMA_IN_PROGRESS) {
 			break;
-		}
 		cpu_relax();
 	} while (1);
 

@@ -1780,7 +1780,6 @@ static int userfaultfd_copy(struct userfaultfd_ctx *ctx,
 	 * in the userland range.
 	 */
 	ret = -EINVAL;
-	printk("wei: in userfaultfd_copy, src: %llu, dst: %llu\n", uffdio_copy.src, uffdio_copy.dst);
 	if (uffdio_copy.src + uffdio_copy.len <= uffdio_copy.src)
 		goto out;
 	if (uffdio_copy.mode & ~(UFFDIO_COPY_MODE_DONTWAKE|UFFDIO_COPY_MODE_WP))
