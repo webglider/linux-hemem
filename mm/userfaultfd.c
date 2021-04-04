@@ -31,14 +31,12 @@
 #include <linux/delay.h>
 #include <linux/pci.h>
 #include <asm/pgtable.h>
-#include <linux/mutex.h>
 
 #define MAX_DMA_CHANS 16
 #define MAX_LEN_PER_DMA_OP 4096
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 
 struct tx_dma_param {
-	struct mutex tx_dma_mutex;
 	u64 expect_count;
 	volatile u64 wakeup_count;
 };
@@ -664,14 +662,10 @@ out:
 static void hemem_dma_tx_callback(void *dma_async_param)
 {
 	struct tx_dma_param *tx_dma_param = (struct tx_dma_param*)dma_async_param;
-	struct mutex *tx_dma_mutex = &(tx_dma_param->tx_dma_mutex);
-  	mutex_lock(tx_dma_mutex);
 	(tx_dma_param->wakeup_count)++;
 	if (tx_dma_param->wakeup_count < tx_dma_param->expect_count) {
-  		mutex_unlock(tx_dma_mutex);
 		return;
 	}
-  	mutex_unlock(tx_dma_mutex);
 	wake_up_interruptible(&wq);
 }
 
@@ -799,7 +793,6 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
         }
     }
 
-	mutex_init(&(tx_dma_param.tx_dma_mutex));
 	tx_dma_param.wakeup_count = 0;
 	tx_dma_param.expect_count = expect_count;
 
@@ -834,6 +827,8 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		BUG_ON(src_start + len <= src_start);
 		BUG_ON(dst_start + len <= dst_start);
 
+        page_walk(src_start, &src_phys);
+        page_walk(dst_start, &dst_phys);
         for (src_cur = src_start, dst_cur = dst_start, len_cur = 0; len_cur < len;) {
             err = 0;
 		    chan = chans[dma_assign_index++ % dma_chans];
@@ -844,8 +839,6 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
                 dma_len = MAX_LEN_PER_DMA_OP;
             }
 
-            page_walk(src_cur, &src_phys);
-            page_walk(dst_cur, &dst_phys);
             tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, dma_len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
             if (tx == NULL) {
                 printk("wei: error when dmaengine_prep_dma_memcpy\n");
@@ -865,8 +858,8 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
             len_cur += dma_len;
             src_cur += dma_len;
             dst_cur += dma_len;
-          //  src_phys += dma_len;
-          //  dst_phys += dma_len;
+            src_phys += dma_len;
+            dst_phys += dma_len;
         }
 	}
 
@@ -887,7 +880,6 @@ out:
 	BUG_ON(copied < 0);
 	BUG_ON(err > 0);
 	BUG_ON(!copied && !err);
-    printk("wei: at the end of __dma_copy__, copied=%d, err=%d\n", copied, err);
 	return copied ? copied : err;
 }
 
