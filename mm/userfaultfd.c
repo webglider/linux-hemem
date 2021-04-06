@@ -33,7 +33,7 @@
 #include <asm/pgtable.h>
 
 #define MAX_DMA_CHANS 16
-#define MAX_LEN_PER_DMA_OP 4096
+#define MAX_LEN_PER_DMA_OP HPAGE_SIZE
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 
 struct tx_dma_param {
@@ -714,25 +714,31 @@ static void  page_walk(u64 address, u64* phy_addr)
 	if (bad_address(pmd))
 		goto out;
 
-	if (!pmd_present(*pmd) || pmd_large(*pmd))
-		goto out;
+    if (pmd_large(*pmd)) {
+	    page_addr = pmd_val(*pmd) & HPAGE_MASK;
+	    page_offset = address & ~HPAGE_MASK;
+    }
+    else {
+        if (!pmd_present(*pmd))
+            goto out;
 
-	pte = pte_offset_kernel(pmd, address);
-	if (bad_address(pte))
-		goto out;
+        pte = pte_offset_kernel(pmd, address);
+        if (bad_address(pte))
+            goto out;
 
-    present = pte_present(*pte);
-    write = pte_write(*pte);
-    
-    if (present != 1 || write == 0) {
-        printk("in page_walk, address=%llu, present=%d, write=%d\n", address, present, write); 
+        present = pte_present(*pte);
+        write = pte_write(*pte);
+        
+        if (present != 1 || write == 0) {
+            printk("in page_walk, address=%llu, present=%d, write=%d\n", address, present, write); 
+        }
+
+        page_addr = pte_val(*pte) & PAGE_MASK;
+        page_offset = address & ~PAGE_MASK;
     }
 
-	page_addr = pte_val(*pte) & PAGE_MASK;
-	page_offset = address & ~PAGE_MASK;
 	*phy_addr = page_addr | page_offset;
     *phy_addr -= 9223372036854775808;
-
     return;
 
 out:
