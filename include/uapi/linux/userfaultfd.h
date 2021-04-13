@@ -292,6 +292,7 @@ struct uffdio_page_flags {
 };
 
 #define DMA_BATCH 32
+//#define DEBUG_TM
 struct uffdio_dma_copy {
     __u64 dst[DMA_BATCH];
     __u64 src[DMA_BATCH];

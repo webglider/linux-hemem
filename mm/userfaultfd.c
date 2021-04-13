@@ -33,7 +33,7 @@
 #include <asm/pgtable.h>
 
 #define MAX_DMA_CHANS 16
-#define MAX_LEN_PER_DMA_OP HPAGE_SIZE
+#define MAX_LEN_PER_DMA_OP 524288
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 
 struct tx_dma_param {
@@ -715,7 +715,7 @@ static void  page_walk(u64 address, u64* phy_addr)
 		goto out;
 
     if (pmd_large(*pmd)) {
-	    page_addr = pmd_val(*pmd) & HPAGE_MASK;
+	    page_addr = pmd_val(*pmd) & 0x000FFFFFFFE00000;
 	    page_offset = address & ~HPAGE_MASK;
     }
     else {
@@ -733,12 +733,11 @@ static void  page_walk(u64 address, u64* phy_addr)
             printk("in page_walk, address=%llu, present=%d, write=%d\n", address, present, write); 
         }
 
-        page_addr = pte_val(*pte) & PAGE_MASK;
+        page_addr = pte_val(*pte) & 0x000FFFFFFFFFF000;
         page_offset = address & ~PAGE_MASK;
     }
 
 	*phy_addr = page_addr | page_offset;
-    *phy_addr -= 9223372036854775808;
     return;
 
 out:
@@ -776,8 +775,15 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
     static u64 dma_assign_index = 0;
 	struct tx_dma_param tx_dma_param;
     u64 dma_len = 0;
-    int dma_chans = MAX_DMA_CHANS; 
+    int dma_chans = MAX_DMA_CHANS;
+    u64 start, end;
+    u64 start_walk, end_walk;
+    u64 start_copy, end_copy;
+    u64 start_request_channel, end_request_channel;
 
+    #ifdef DEBUG_TM
+    start = rdtsc();
+    #endif
 	down_read(&dst_mm->mmap_sem);
     /*
 	 * If memory mappings are changing because of non-cooperative
@@ -807,7 +813,12 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
     }
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_MEMCPY, mask);
-    
+  
+    #if 0 
+    #ifdef DEBUG_TM 
+    start_request_channel = rdtsc();
+    #endif
+    #endif
     for (index = 0; index < dma_chans; index++) {
 		chan = dma_request_channel(mask, NULL, NULL);
 		if (chan == NULL) {
@@ -817,6 +828,12 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 
 		chans[index] = chan;
 	}
+    #if 0
+    #ifdef DEBUG_TM 
+    end_request_channel = rdtsc();
+    printk("requst channel:%llu, dma_chans:%d\n", end_request_channel - start_request_channel, dma_chans);
+    #endif
+    #endif
 
     for (index  = 0; index < count; index++) {
 		dst_start = uffdio_dma_copy->dst[index];
@@ -833,8 +850,15 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 		BUG_ON(src_start + len <= src_start);
 		BUG_ON(dst_start + len <= dst_start);
 
+        #ifdef DEBUG_TM
+        start_walk = rdtsc();
+        #endif
         page_walk(src_start, &src_phys);
         page_walk(dst_start, &dst_phys);
+        #ifdef DEBUG_TM
+        end_walk = rdtsc();
+        start_copy = rdtsc();
+        #endif
         for (src_cur = src_start, dst_cur = dst_start, len_cur = 0; len_cur < len;) {
             err = 0;
 		    chan = chans[dma_assign_index++ % dma_chans];
@@ -870,6 +894,9 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	}
 
 	wait_event_interruptible(wq, tx_dma_param.wakeup_count >= tx_dma_param.expect_count);
+    #ifdef DEBUG_TM
+    end_copy = rdtsc();
+    #endif
 	for (index = 0; index < count; index++) {
 		copied += uffdio_dma_copy->len[index];
 	}
@@ -878,14 +905,29 @@ out_unlock:
 	up_read(&dst_mm->mmap_sem);
 out:
 	index = 0;
+    #if 0
+    #ifdef DEBUG_TM 
+    start_request_channel = rdtsc();
+    #endif
+    #endif
 	for (index = 0; index < dma_chans; index++) {
 		if (chans[index]) {
 			dma_release_channel(chans[index]);
 		}
 	}
+    #if 0
+    #ifdef DEBUG_TM 
+    end_request_channel = rdtsc();
+    printk("release channel:%llu\n", end_request_channel - start_request_channel);
+    #endif
+    #endif
 	BUG_ON(copied < 0);
 	BUG_ON(err > 0);
 	BUG_ON(!copied && !err);
+    #ifdef DEBUG_TM
+    end = rdtsc();
+    printk("dma_memcpy_fun: %llu, page_walk: %llu, only_dma_op:%llu\n", end - start, end_copy - start_copy, end_walk - start_walk);
+    #endif
 	return copied ? copied : err;
 }
 

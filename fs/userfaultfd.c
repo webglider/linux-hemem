@@ -30,6 +30,8 @@
 #include <linux/security.h>
 #include <linux/hugetlb.h>
 
+#define NO_OPT
+
 static struct kmem_cache *userfaultfd_ctx_cachep __read_mostly;
 
 enum userfaultfd_state {
@@ -2152,26 +2154,46 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
     int index;
     u64 expected_len = 0;
 
+    u64 start_ioctl, end_ioctl;
+    u64 start_copy, end_copy;
+    #ifdef DEBUG_TM
+    start_ioctl = rdtsc();
+    #endif
+
     user_uffdio_dma_copy = (struct uffdio_dma_copy __user *) arg;
-   
+  
+    #ifdef NO_OPT  
     ret = -EAGAIN;
     if (READ_ONCE(ctx->mmap_changing))
         goto out;
+    #endif
 
+    #if 0
+    #ifdef DEBUG_TM
+    start_copy = rdtsc();
+    #endif
+    #endif
     ret = -EFAULT;
     if (copy_from_user(&uffdio_dma_copy, user_uffdio_dma_copy,
                /* don't copy "copy" last field */
 	       sizeof(uffdio_dma_copy)-sizeof(__s64)))
         goto out;
+    #if 0
+    #ifdef DEBUG_TM
+    end_copy = rdtsc();
+    #endif
+    #endif
 
     u64 count = uffdio_dma_copy.count;
-  
+ 
+    #ifdef NO_OPT 
     for (index = 0; index < count; index++)  {
         ret = validate_range(ctx->mm, uffdio_dma_copy.dst[index], uffdio_dma_copy.len[index]);
         if (ret)
             goto out;
 	    expected_len += uffdio_dma_copy.len[index];
     }
+    #endif
 
     /*
      * double check for wraparound just in case. copy_from_user()
@@ -2200,8 +2222,16 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
     }
     #endif
 
+    ret = 0;
+    #ifdef NO_OPT
     ret = ((range.len == expected_len) ? 0 : -EAGAIN);
+    #endif
 out:
+    #ifdef DEBUG_TM
+    end_ioctl = rdtsc();
+    //printk("userfaultfd_dma_ioctl:%llu, user-kernel copy:%llu\n", end_ioctl - start_ioctl, end_copy - start_copy);
+    printk("userfaultfd_dma_ioctl:%llu\n", end_ioctl - start_ioctl);
+    #endif
     return ret;
 }
 
