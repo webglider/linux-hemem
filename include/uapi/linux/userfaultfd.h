@@ -44,7 +44,9 @@
    (__u64)1 << _UFFDIO_CR3      | \
    (__u64)1 << _UFFDIO_GET_FLAG | \
    (__u64)1 << _UFFDIO_CLEAR_FLAG | \
-   (__u64)1 << _UFFDIO_DMA_COPY)
+   (__u64)1 << _UFFDIO_DMA_COPY | \
+   (__u64)1 << _UFFDIO_DMA_REQUEST_CHANNS | \
+   (__u64)1 << _UFFDIO_DMA_RELEASE_CHANNS)
 
 /*
  * Valid ioctl command number range with this API is from 0x00 to
@@ -66,6 +68,8 @@
 #define _UFFDIO_GET_FLAG  (0x0b)
 #define _UFFDIO_CLEAR_FLAG  (0x0c)
 #define _UFFDIO_DMA_COPY  (0x0d)
+#define _UFFDIO_DMA_REQUEST_CHANNS  (0x0e)
+#define _UFFDIO_DMA_RELEASE_CHANNS  (0x0f)
 
 
 /* userfaultfd ioctl ids */
@@ -94,6 +98,10 @@
               struct uffdio_page_flags)
 #define UFFDIO_DMA_COPY		_IOWR(UFFDIO, _UFFDIO_DMA_COPY,	\
 				      struct uffdio_dma_copy)
+#define UFFDIO_DMA_REQUEST_CHANNS		_IOWR(UFFDIO, _UFFDIO_DMA_REQUEST_CHANNS,	\
+				      struct uffdio_dma_channs)
+#define UFFDIO_DMA_RELEASE_CHANNS		_IOWR(UFFDIO, _UFFDIO_DMA_RELEASE_CHANNS, \
+                       struct uffdio_dma_channs)
 
 /* read() structure */
 struct uffd_msg {
@@ -292,6 +300,7 @@ struct uffdio_page_flags {
 };
 
 #define DMA_BATCH 32
+#define MAX_DMA_CHANS 16
 //#define DEBUG_TM
 struct uffdio_dma_copy {
     __u64 dst[DMA_BATCH];
@@ -313,6 +322,10 @@ struct uffdio_dma_copy {
      * copy_from_user will not read the last 8 bytes.
      */
     __s64 copy;
+};
+
+struct uffdio_dma_channs {
+    __u16 num_channs;
 };
 
 #endif /* _LINUX_USERFAULTFD_H */

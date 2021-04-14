@@ -30,7 +30,7 @@
 #include <linux/security.h>
 #include <linux/hugetlb.h>
 
-#define NO_OPT
+//#define NO_OPT
 
 static struct kmem_cache *userfaultfd_ctx_cachep __read_mostly;
 
@@ -2168,20 +2168,16 @@ static int userfaultfd_dma_copy(struct userfaultfd_ctx *ctx,
         goto out;
     #endif
 
-    #if 0
     #ifdef DEBUG_TM
     start_copy = rdtsc();
-    #endif
     #endif
     ret = -EFAULT;
     if (copy_from_user(&uffdio_dma_copy, user_uffdio_dma_copy,
                /* don't copy "copy" last field */
 	       sizeof(uffdio_dma_copy)-sizeof(__s64)))
         goto out;
-    #if 0
     #ifdef DEBUG_TM
     end_copy = rdtsc();
-    #endif
     #endif
 
     u64 count = uffdio_dma_copy.count;
@@ -2233,6 +2229,28 @@ out:
     printk("userfaultfd_dma_ioctl:%llu\n", end_ioctl - start_ioctl);
     #endif
     return ret;
+}
+
+// The design is only hemem case. Only one application can request/repsonse/use channels. Not consider concurrency and No lock for protection
+static int userfaultfd_dma_request_channs(struct userfaultfd_ctx *ctx,
+                     unsigned long arg)
+{
+    struct uffdio_dma_channs uffdio_dma_channs;
+    struct uffdio_dma_channs __user *user_uffdio_dma_channs;
+
+    user_uffdio_dma_channs = (struct uffdio_dma_channs __user *)arg;
+    if (copy_from_user(&uffdio_dma_channs, user_uffdio_dma_channs, sizeof(uffdio_dma_channs))) {
+        printk("fs/userfaultfd.c: userfaultfd_dma_request_channs: copy_from_user failed\n");
+        return -1;
+    }
+
+    return dma_request_channs(&uffdio_dma_channs);
+}
+
+static int userfaultfd_dma_release_channs(struct userfaultfd_ctx *ctx,
+                     unsigned long arg)
+{
+    return dma_release_channs();
 }
 
 static inline unsigned int uffd_ctx_features(__u64 user_features)
@@ -2327,9 +2345,15 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
   case UFFDIO_CLEAR_FLAG:
     ret = userfaultfd_clear_flag(ctx, arg);
     break;
-	case UFFDIO_DMA_COPY:
+    case UFFDIO_DMA_COPY:
 		ret = userfaultfd_dma_copy(ctx, arg);
 		break;
+    case UFFDIO_DMA_REQUEST_CHANNS:
+        ret = userfaultfd_dma_request_channs(ctx, arg);
+        break;
+    case UFFDIO_DMA_RELEASE_CHANNS:
+        ret = userfaultfd_dma_release_channs(ctx, arg);
+        break;
 	}
 	return ret;
 }

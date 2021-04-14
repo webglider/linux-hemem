@@ -32,9 +32,11 @@
 #include <linux/pci.h>
 #include <asm/pgtable.h>
 
-#define MAX_DMA_CHANS 16
 #define MAX_LEN_PER_DMA_OP 524288
 static DECLARE_WAIT_QUEUE_HEAD(wq);
+//For simplicity, request/release a fixed number of channs
+struct dma_chan *chans[MAX_DMA_CHANS] = {NULL};
+u16 dma_channs = 0;
 
 struct tx_dma_param {
 	u64 expect_count;
@@ -744,6 +746,66 @@ out:
 	pr_info("BAD\n");
 }
 
+int dma_request_channs(struct uffdio_dma_channs* uffdio_dma_channs)
+{
+    struct dma_chan *chan = NULL;
+    dma_cap_mask_t mask;
+    int index;
+    int num_channs;
+
+    if (uffdio_dma_channs == NULL) {
+        return -1;
+    }
+
+    num_channs = uffdio_dma_channs->num_channs;
+    if (num_channs > MAX_DMA_CHANS) {
+        num_channs = MAX_DMA_CHANS;
+    }
+
+    dma_cap_zero(mask);
+    dma_cap_set(DMA_MEMCPY, mask);
+    for (index = 0; index < num_channs; index++) {
+        if (chans[index]) {
+            continue;
+        }
+
+        chan = dma_request_channel(mask, NULL, NULL);
+        if (chan == NULL) {
+            printk("wei: error when dma_request_channel, index=%d, num_channs=%u\n", index, num_channs);
+            goto out;
+        }
+
+        chans[index] = chan;
+    }
+
+    dma_channs = num_channs;
+    return 0;
+out:
+    while (index >= 0) {
+        if (chans[index]) {
+            dma_release_channel(chans[index]);
+            chans[index] = NULL;
+        }
+    }
+
+    return -1;
+}
+
+int dma_release_channs(void)
+{
+    int index;
+
+    for (index = 0; index < dma_channs; index++) {
+        if (chans[index]) {
+            dma_release_channel(chans[index]);
+            chans[index] = NULL;
+        }
+    }
+
+    dma_channs = 0;
+    return 0;
+}
+
 static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 					      struct uffdio_dma_copy *uffdio_dma_copy,
 					      bool *mmap_changing)
@@ -760,7 +822,6 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	dma_addr_t dst_phys;
 	u64 len;
     u64 len_cur;
-	struct dma_chan *chans[DMA_BATCH] = {NULL};
 	struct dma_chan *chan = NULL;
 	dma_cap_mask_t mask;
 	struct dma_async_tx_descriptor *tx = NULL;
@@ -775,11 +836,9 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
     static u64 dma_assign_index = 0;
 	struct tx_dma_param tx_dma_param;
     u64 dma_len = 0;
-    int dma_chans = MAX_DMA_CHANS;
     u64 start, end;
     u64 start_walk, end_walk;
     u64 start_copy, end_copy;
-    u64 start_request_channel, end_request_channel;
 
     #ifdef DEBUG_TM
     start = rdtsc();
@@ -807,34 +866,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 
 	tx_dma_param.wakeup_count = 0;
 	tx_dma_param.expect_count = expect_count;
-
-    if (expect_count < MAX_DMA_CHANS) {
-        dma_chans = expect_count; 
-    }
-	dma_cap_zero(mask);
-	dma_cap_set(DMA_MEMCPY, mask);
-  
-    #if 0 
-    #ifdef DEBUG_TM 
-    start_request_channel = rdtsc();
-    #endif
-    #endif
-    for (index = 0; index < dma_chans; index++) {
-		chan = dma_request_channel(mask, NULL, NULL);
-		if (chan == NULL) {
-			printk("wei: error when dma_request_channel, index=%d, count=%llu\n", index, count);
-			goto out_unlock;
-		}
-
-		chans[index] = chan;
-	}
-    #if 0
-    #ifdef DEBUG_TM 
-    end_request_channel = rdtsc();
-    printk("requst channel:%llu, dma_chans:%d\n", end_request_channel - start_request_channel, dma_chans);
-    #endif
-    #endif
-
+        
     for (index  = 0; index < count; index++) {
 		dst_start = uffdio_dma_copy->dst[index];
 		src_start = uffdio_dma_copy->src[index];
@@ -861,7 +893,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
         #endif
         for (src_cur = src_start, dst_cur = dst_start, len_cur = 0; len_cur < len;) {
             err = 0;
-		    chan = chans[dma_assign_index++ % dma_chans];
+		    chan = chans[dma_assign_index++ % dma_channs];
             if (len_cur + MAX_LEN_PER_DMA_OP > len) {
                 dma_len = len - len_cur; 
             }
@@ -871,7 +903,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 
             tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, dma_len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
             if (tx == NULL) {
-                printk("wei: error when dmaengine_prep_dma_memcpy\n");
+                printk("wei: error when dmaengine_prep_dma_memcpy, dma_chans=%d\n", dma_channs);
                 goto out_unlock;
             }
 
@@ -904,24 +936,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 out_unlock:
 	up_read(&dst_mm->mmap_sem);
 out:
-	index = 0;
-    #if 0
-    #ifdef DEBUG_TM 
-    start_request_channel = rdtsc();
-    #endif
-    #endif
-	for (index = 0; index < dma_chans; index++) {
-		if (chans[index]) {
-			dma_release_channel(chans[index]);
-		}
-	}
-    #if 0
-    #ifdef DEBUG_TM 
-    end_request_channel = rdtsc();
-    printk("release channel:%llu\n", end_request_channel - start_request_channel);
-    #endif
-    #endif
-	BUG_ON(copied < 0);
+   	BUG_ON(copied < 0);
 	BUG_ON(err > 0);
 	BUG_ON(!copied && !err);
     #ifdef DEBUG_TM
