@@ -31,6 +31,7 @@
 #include <linux/delay.h>
 #include <linux/pci.h>
 #include <asm/pgtable.h>
+#include <linux/mutex.h>
 
 #define MAX_LEN_PER_DMA_OP 524288
 static DECLARE_WAIT_QUEUE_HEAD(wq);
@@ -39,6 +40,7 @@ struct dma_chan *chans[MAX_DMA_CHANS] = {NULL};
 u16 dma_channs = 0;
 
 struct tx_dma_param {
+    struct mutex tx_dma_mutex;
 	u64 expect_count;
 	volatile u64 wakeup_count;
 };
@@ -664,10 +666,14 @@ out:
 static void hemem_dma_tx_callback(void *dma_async_param)
 {
 	struct tx_dma_param *tx_dma_param = (struct tx_dma_param*)dma_async_param;
+    struct mutex *tx_dma_mutex = &(tx_dma_param->tx_dma_mutex);
+    mutex_lock(tx_dma_mutex);
 	(tx_dma_param->wakeup_count)++;
 	if (tx_dma_param->wakeup_count < tx_dma_param->expect_count) {
+        mutex_unlock(tx_dma_mutex);
 		return;
 	}
+    mutex_unlock(tx_dma_mutex);
 	wake_up_interruptible(&wq);
 }
 
@@ -866,6 +872,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 
 	tx_dma_param.wakeup_count = 0;
 	tx_dma_param.expect_count = expect_count;
+    mutex_init(&(tx_dma_param.tx_dma_mutex));
         
     for (index  = 0; index < count; index++) {
 		dst_start = uffdio_dma_copy->dst[index];
