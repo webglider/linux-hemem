@@ -325,7 +325,8 @@ struct uffdio_dma_copy {
 };
 
 struct uffdio_dma_channs {
-    __u16 num_channs;
+    __u32 num_channs;
+    __u32 size_per_dma_request;
 };
 
 #endif /* _LINUX_USERFAULTFD_H */

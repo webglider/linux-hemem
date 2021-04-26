@@ -33,11 +33,12 @@
 #include <asm/pgtable.h>
 #include <linux/mutex.h>
 
-#define MAX_LEN_PER_DMA_OP 524288
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 //For simplicity, request/release a fixed number of channs
 struct dma_chan *chans[MAX_DMA_CHANS] = {NULL};
-u16 dma_channs = 0;
+#define MAX_SIZE_PER_DMA_REQUEST (2*1024*1024)
+u32 size_per_dma_request =  MAX_SIZE_PER_DMA_REQUEST;
+u32 dma_channs = 0;
 
 struct tx_dma_param {
     struct mutex tx_dma_mutex;
@@ -768,6 +769,11 @@ int dma_request_channs(struct uffdio_dma_channs* uffdio_dma_channs)
         num_channs = MAX_DMA_CHANS;
     }
 
+    size_per_dma_request = uffdio_dma_channs->size_per_dma_request;
+    if (size_per_dma_request > MAX_SIZE_PER_DMA_REQUEST) {
+        size_per_dma_request = MAX_SIZE_PER_DMA_REQUEST;
+    }
+
     dma_cap_zero(mask);
     dma_cap_set(DMA_MEMCPY, mask);
     for (index = 0; index < num_channs; index++) {
@@ -809,6 +815,7 @@ int dma_release_channs(void)
     }
 
     dma_channs = 0;
+    size_per_dma_request = MAX_SIZE_PER_DMA_REQUEST;
     return 0;
 }
 
@@ -862,11 +869,11 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 	BUG_ON(uffdio_dma_copy == NULL);
 	count = uffdio_dma_copy->count;
     for (index = 0; index < count; index++) {
-        if (uffdio_dma_copy->len[index] % MAX_LEN_PER_DMA_OP == 0) {
-            expect_count += uffdio_dma_copy->len[index] / MAX_LEN_PER_DMA_OP;
+        if (uffdio_dma_copy->len[index] % size_per_dma_request == 0) {
+            expect_count += uffdio_dma_copy->len[index] / size_per_dma_request;
         }
         else {
-            expect_count += uffdio_dma_copy->len[index] / MAX_LEN_PER_DMA_OP + 1;
+            expect_count += uffdio_dma_copy->len[index] / size_per_dma_request + 1;
         }
     }
 
@@ -901,11 +908,11 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
         for (src_cur = src_start, dst_cur = dst_start, len_cur = 0; len_cur < len;) {
             err = 0;
 		    chan = chans[dma_assign_index++ % dma_channs];
-            if (len_cur + MAX_LEN_PER_DMA_OP > len) {
+            if (len_cur + size_per_dma_request > len) {
                 dma_len = len - len_cur; 
             }
             else {
-                dma_len = MAX_LEN_PER_DMA_OP;
+                dma_len = size_per_dma_request;
             }
 
             tx = dmaengine_prep_dma_memcpy(chan, dst_phys, src_phys, dma_len, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
