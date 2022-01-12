@@ -1,17 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright 2016 Broadcom
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License, version 2, as
- * published by the Free Software Foundation (the "GPL").
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License version 2 (GPLv2) for more details.
- *
- * You should have received a copy of the GNU General Public License
- * version 2 (GPLv2) along with this source code.
  */
 
 #ifndef _UTIL_H
@@ -69,12 +58,26 @@ void __dump_sg(struct scatterlist *sg, unsigned int skip, unsigned int len);
 
 #else /* !DEBUG_ON */
 
-#define flow_log(...) do {} while (0)
-#define flow_dump(msg, var, var_len) do {} while (0)
-#define packet_log(...) do {} while (0)
-#define packet_dump(msg, var, var_len) do {} while (0)
+static inline void flow_log(const char *format, ...)
+{
+}
 
-#define dump_sg(sg, skip, len) do {} while (0)
+static inline void flow_dump(const char *msg, const void *var, size_t var_len)
+{
+}
+
+static inline void packet_log(const char *format, ...)
+{
+}
+
+static inline void packet_dump(const char *msg, const void *var, size_t var_len)
+{
+}
+
+static inline void dump_sg(struct scatterlist *sg, unsigned int skip,
+			   unsigned int len)
+{
+}
 
 #endif /* DEBUG_ON */
 

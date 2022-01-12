@@ -1,15 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Sony MemoryStick Pro storage support
  *
  *  Copyright (C) 2007 Alex Dubov <oakad@yahoo.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  * Special thanks to Carlos Corbacho for providing various MemoryStick cards
  * that made this driver possible.
- *
  */
 
 #include <linux/blk-mq.h>
@@ -280,7 +276,7 @@ static const char *mspro_block_attr_name(unsigned char tag)
 		return "attr_devinfo";
 	default:
 		return NULL;
-	};
+	}
 }
 
 typedef ssize_t (*sysfs_show_t)(struct device *dev,
@@ -694,13 +690,13 @@ static void h_mspro_block_setup_cmd(struct memstick_dev *card, u64 offset,
 
 /*** Data transfer ***/
 
-static int mspro_block_issue_req(struct memstick_dev *card, bool chunk)
+static int mspro_block_issue_req(struct memstick_dev *card)
 {
 	struct mspro_block_data *msb = memstick_get_drvdata(card);
 	u64 t_off;
 	unsigned int count;
 
-	while (chunk) {
+	while (true) {
 		msb->current_page = 0;
 		msb->current_seg = 0;
 		msb->seg_count = blk_rq_map_sg(msb->block_req->q,
@@ -709,6 +705,7 @@ static int mspro_block_issue_req(struct memstick_dev *card, bool chunk)
 
 		if (!msb->seg_count) {
 			unsigned int bytes = blk_rq_cur_bytes(msb->block_req);
+			bool chunk;
 
 			chunk = blk_update_request(msb->block_req,
 							BLK_STS_RESOURCE,
@@ -718,7 +715,7 @@ static int mspro_block_issue_req(struct memstick_dev *card, bool chunk)
 			__blk_mq_end_request(msb->block_req,
 						BLK_STS_RESOURCE);
 			msb->block_req = NULL;
-			break;
+			return -EAGAIN;
 		}
 
 		t_off = blk_rq_pos(msb->block_req);
@@ -735,8 +732,6 @@ static int mspro_block_issue_req(struct memstick_dev *card, bool chunk)
 		memstick_new_req(card->host);
 		return 0;
 	}
-
-	return 1;
 }
 
 static int mspro_block_complete_req(struct memstick_dev *card, int error)
@@ -779,7 +774,7 @@ static int mspro_block_complete_req(struct memstick_dev *card, int error)
 		chunk = blk_update_request(msb->block_req,
 				errno_to_blk_status(error), t_len);
 		if (chunk) {
-			error = mspro_block_issue_req(card, chunk);
+			error = mspro_block_issue_req(card);
 			if (!error)
 				goto out;
 		} else {
@@ -849,7 +844,7 @@ static blk_status_t mspro_queue_rq(struct blk_mq_hw_ctx *hctx,
 	msb->block_req = bd->rq;
 	blk_mq_start_request(bd->rq);
 
-	if (mspro_block_issue_req(card, true))
+	if (mspro_block_issue_req(card))
 		msb->block_req = NULL;
 
 	spin_unlock_irq(&msb->q_lock);
@@ -1210,21 +1205,17 @@ static int mspro_block_init_disk(struct memstick_dev *card)
 	if (disk_id < 0)
 		return disk_id;
 
-	msb->disk = alloc_disk(1 << MSPRO_BLOCK_PART_SHIFT);
-	if (!msb->disk) {
-		rc = -ENOMEM;
+	rc = blk_mq_alloc_sq_tag_set(&msb->tag_set, &mspro_mq_ops, 2,
+				     BLK_MQ_F_SHOULD_MERGE);
+	if (rc)
 		goto out_release_id;
-	}
 
-	msb->queue = blk_mq_init_sq_queue(&msb->tag_set, &mspro_mq_ops, 2,
-						BLK_MQ_F_SHOULD_MERGE);
-	if (IS_ERR(msb->queue)) {
-		rc = PTR_ERR(msb->queue);
-		msb->queue = NULL;
-		goto out_put_disk;
+	msb->disk = blk_mq_alloc_disk(&msb->tag_set, card);
+	if (IS_ERR(msb->disk)) {
+		rc = PTR_ERR(msb->disk);
+		goto out_free_tag_set;
 	}
-
-	msb->queue->queuedata = card;
+	msb->queue = msb->disk->queue;
 
 	blk_queue_max_hw_sectors(msb->queue, MSPRO_BLOCK_MAX_PAGES);
 	blk_queue_max_segments(msb->queue, MSPRO_BLOCK_MAX_SEGS);
@@ -1233,10 +1224,10 @@ static int mspro_block_init_disk(struct memstick_dev *card)
 
 	msb->disk->major = major;
 	msb->disk->first_minor = disk_id << MSPRO_BLOCK_PART_SHIFT;
+	msb->disk->minors = 1 << MSPRO_BLOCK_PART_SHIFT;
 	msb->disk->fops = &ms_block_bdops;
 	msb->usage_count = 1;
 	msb->disk->private_data = msb;
-	msb->disk->queue = msb->queue;
 
 	sprintf(msb->disk->disk_name, "mspblk%d", disk_id);
 
@@ -1252,8 +1243,8 @@ static int mspro_block_init_disk(struct memstick_dev *card)
 	msb->active = 1;
 	return 0;
 
-out_put_disk:
-	put_disk(msb->disk);
+out_free_tag_set:
+	blk_mq_free_tag_set(&msb->tag_set);
 out_release_id:
 	mutex_lock(&mspro_block_disk_lock);
 	idr_remove(&mspro_block_disk_idr, disk_id);
@@ -1387,7 +1378,8 @@ static int mspro_block_resume(struct memstick_dev *card)
 
 	new_msb->card = card;
 	memstick_set_drvdata(card, new_msb);
-	if (mspro_block_init_card(card))
+	rc = mspro_block_init_card(card);
+	if (rc)
 		goto out_free;
 
 	for (cnt = 0; new_msb->attr_group.attrs[cnt]

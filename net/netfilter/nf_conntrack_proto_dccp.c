@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * DCCP connection tracking protocol helper
  *
  * Copyright (c) 2005, 2006, 2008 Patrick McHardy <kaber@trash.net>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -386,7 +382,8 @@ dccp_state_table[CT_DCCP_ROLE_MAX + 1][DCCP_PKT_SYNCACK + 1][CT_DCCP_MAX + 1] = 
 
 static noinline bool
 dccp_new(struct nf_conn *ct, const struct sk_buff *skb,
-	 const struct dccp_hdr *dh)
+	 const struct dccp_hdr *dh,
+	 const struct nf_hook_state *hook_state)
 {
 	struct net *net = nf_ct_net(ct);
 	struct nf_dccp_net *dn;
@@ -401,6 +398,7 @@ dccp_new(struct nf_conn *ct, const struct sk_buff *skb,
 			msg = "not picking up existing connection ";
 			goto out_invalid;
 		}
+		break;
 	case CT_DCCP_REQUEST:
 		break;
 	case CT_DCCP_INVALID:
@@ -417,7 +415,7 @@ dccp_new(struct nf_conn *ct, const struct sk_buff *skb,
 	return true;
 
 out_invalid:
-	nf_ct_l4proto_log_invalid(skb, ct, "%s", msg);
+	nf_ct_l4proto_log_invalid(skb, ct, hook_state, "%s", msg);
 	return false;
 }
 
@@ -467,8 +465,7 @@ static bool dccp_error(const struct dccp_hdr *dh,
 	}
 	return false;
 out_invalid:
-	nf_l4proto_log_invalid(skb, state->net, state->pf,
-			       IPPROTO_DCCP, "%s", msg);
+	nf_l4proto_log_invalid(skb, state, IPPROTO_DCCP, "%s", msg);
 	return true;
 }
 
@@ -491,7 +488,7 @@ int nf_conntrack_dccp_packet(struct nf_conn *ct, struct sk_buff *skb,
 		return -NF_ACCEPT;
 
 	type = dh->dccph_type;
-	if (!nf_ct_is_confirmed(ct) && !dccp_new(ct, skb, dh))
+	if (!nf_ct_is_confirmed(ct) && !dccp_new(ct, skb, dh, state))
 		return -NF_ACCEPT;
 
 	if (type == DCCP_PKT_RESET &&
@@ -546,11 +543,11 @@ int nf_conntrack_dccp_packet(struct nf_conn *ct, struct sk_buff *skb,
 		ct->proto.dccp.last_pkt = type;
 
 		spin_unlock_bh(&ct->lock);
-		nf_ct_l4proto_log_invalid(skb, ct, "%s", "invalid packet");
+		nf_ct_l4proto_log_invalid(skb, ct, state, "%s", "invalid packet");
 		return NF_ACCEPT;
 	case CT_DCCP_INVALID:
 		spin_unlock_bh(&ct->lock);
-		nf_ct_l4proto_log_invalid(skb, ct, "%s", "invalid state transition");
+		nf_ct_l4proto_log_invalid(skb, ct, state, "%s", "invalid state transition");
 		return -NF_ACCEPT;
 	}
 
@@ -593,23 +590,30 @@ static void dccp_print_conntrack(struct seq_file *s, struct nf_conn *ct)
 
 #if IS_ENABLED(CONFIG_NF_CT_NETLINK)
 static int dccp_to_nlattr(struct sk_buff *skb, struct nlattr *nla,
-			  struct nf_conn *ct)
+			  struct nf_conn *ct, bool destroy)
 {
 	struct nlattr *nest_parms;
 
 	spin_lock_bh(&ct->lock);
-	nest_parms = nla_nest_start(skb, CTA_PROTOINFO_DCCP | NLA_F_NESTED);
+	nest_parms = nla_nest_start(skb, CTA_PROTOINFO_DCCP);
 	if (!nest_parms)
 		goto nla_put_failure;
-	if (nla_put_u8(skb, CTA_PROTOINFO_DCCP_STATE, ct->proto.dccp.state) ||
-	    nla_put_u8(skb, CTA_PROTOINFO_DCCP_ROLE,
+	if (nla_put_u8(skb, CTA_PROTOINFO_DCCP_STATE, ct->proto.dccp.state))
+		goto nla_put_failure;
+
+	if (destroy)
+		goto skip_state;
+
+	if (nla_put_u8(skb, CTA_PROTOINFO_DCCP_ROLE,
 		       ct->proto.dccp.role[IP_CT_DIR_ORIGINAL]) ||
 	    nla_put_be64(skb, CTA_PROTOINFO_DCCP_HANDSHAKE_SEQ,
 			 cpu_to_be64(ct->proto.dccp.handshake_seq),
 			 CTA_PROTOINFO_DCCP_PAD))
 		goto nla_put_failure;
+skip_state:
 	nla_nest_end(skb, nest_parms);
 	spin_unlock_bh(&ct->lock);
+
 	return 0;
 
 nla_put_failure:
@@ -639,8 +643,8 @@ static int nlattr_to_dccp(struct nlattr *cda[], struct nf_conn *ct)
 	if (!attr)
 		return 0;
 
-	err = nla_parse_nested(tb, CTA_PROTOINFO_DCCP_MAX, attr,
-			       dccp_nla_policy, NULL);
+	err = nla_parse_nested_deprecated(tb, CTA_PROTOINFO_DCCP_MAX, attr,
+					  dccp_nla_policy, NULL);
 	if (err < 0)
 		return err;
 
@@ -680,6 +684,9 @@ static int dccp_timeout_nlattr_to_obj(struct nlattr *tb[],
 	struct nf_dccp_net *dn = nf_dccp_pernet(net);
 	unsigned int *timeouts = data;
 	int i;
+
+	if (!timeouts)
+		 timeouts = dn->dccp_timeout;
 
 	/* set default DCCP timeouts. */
 	for (i=0; i<CT_DCCP_MAX; i++)

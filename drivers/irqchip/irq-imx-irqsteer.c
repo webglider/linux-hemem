@@ -122,7 +122,7 @@ static void imx_irqsteer_irq_handler(struct irq_desc *desc)
 	for (i = 0; i < 2; i++, hwirq += 32) {
 		int idx = imx_irqsteer_get_reg_index(data, hwirq);
 		unsigned long irqmap;
-		int pos, virq;
+		int pos;
 
 		if (hwirq >= data->reg_num * 32)
 			break;
@@ -130,11 +130,8 @@ static void imx_irqsteer_irq_handler(struct irq_desc *desc)
 		irqmap = readl_relaxed(data->regs +
 				       CHANSTATUS(idx, data->reg_num));
 
-		for_each_set_bit(pos, &irqmap, 32) {
-			virq = irq_find_mapping(data->domain, pos + hwirq);
-			if (virq)
-				generic_handle_irq(virq);
-		}
+		for_each_set_bit(pos, &irqmap, 32)
+			generic_handle_domain_irq(data->domain, pos + hwirq);
 	}
 
 	chained_irq_exit(irq_desc_get_chip(desc), desc);
@@ -144,7 +141,6 @@ static int imx_irqsteer_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct irqsteer_data *data;
-	struct resource *res;
 	u32 irqs_num;
 	int i, ret;
 
@@ -152,20 +148,16 @@ static int imx_irqsteer_probe(struct platform_device *pdev)
 	if (!data)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	data->regs = devm_ioremap_resource(&pdev->dev, res);
+	data->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(data->regs)) {
 		dev_err(&pdev->dev, "failed to initialize reg\n");
 		return PTR_ERR(data->regs);
 	}
 
 	data->ipg_clk = devm_clk_get(&pdev->dev, "ipg");
-	if (IS_ERR(data->ipg_clk)) {
-		ret = PTR_ERR(data->ipg_clk);
-		if (ret != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "failed to get ipg clk: %d\n", ret);
-		return ret;
-	}
+	if (IS_ERR(data->ipg_clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(data->ipg_clk),
+				     "failed to get ipg clk\n");
 
 	raw_spin_lock_init(&data->lock);
 

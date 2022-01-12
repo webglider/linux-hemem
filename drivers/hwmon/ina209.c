@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Driver for the Texas Instruments / Burr Brown INA209
  * Bidirectional Current/Power Monitor
@@ -12,12 +13,8 @@
  *	Copyright (C) 2012 Lothar Felten <l-felten@ti.com>
  *	Thanks to Jan Volkering
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
  * Datasheet:
- * http://www.ti.com/lit/gpn/ina209
+ * https://www.ti.com/lit/gpn/ina209
  */
 
 #include <linux/kernel.h>
@@ -262,7 +259,7 @@ static ssize_t ina209_interval_show(struct device *dev,
 {
 	struct ina209_data *data = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", data->update_interval);
+	return sysfs_emit(buf, "%d\n", data->update_interval);
 }
 
 /*
@@ -346,7 +343,7 @@ static ssize_t ina209_value_show(struct device *dev,
 		return PTR_ERR(data);
 
 	val = ina209_from_reg(attr->index, data->regs[attr->index]);
-	return snprintf(buf, PAGE_SIZE, "%ld\n", val);
+	return sysfs_emit(buf, "%ld\n", val);
 }
 
 static ssize_t ina209_alarm_show(struct device *dev,
@@ -366,7 +363,7 @@ static ssize_t ina209_alarm_show(struct device *dev,
 	 * All alarms are in the INA209_STATUS register. To avoid a long
 	 * switch statement, the mask is passed in attr->index
 	 */
-	return snprintf(buf, PAGE_SIZE, "%u\n", !!(status & mask));
+	return sysfs_emit(buf, "%u\n", !!(status & mask));
 }
 
 /* Shunt voltage, history, limits, alarms */
@@ -534,8 +531,7 @@ static int ina209_init_client(struct i2c_client *client,
 	return 0;
 }
 
-static int ina209_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int ina209_probe(struct i2c_client *client)
 {
 	struct i2c_adapter *adapter = client->adapter;
 	struct ina209_data *data;
@@ -587,7 +583,7 @@ static const struct i2c_device_id ina209_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ina209_id);
 
-static const struct of_device_id ina209_of_match[] = {
+static const struct of_device_id __maybe_unused ina209_of_match[] = {
 	{ .compatible = "ti,ina209" },
 	{ },
 };
@@ -600,7 +596,7 @@ static struct i2c_driver ina209_driver = {
 		.name	= "ina209",
 		.of_match_table = of_match_ptr(ina209_of_match),
 	},
-	.probe		= ina209_probe,
+	.probe_new	= ina209_probe,
 	.remove		= ina209_remove,
 	.id_table	= ina209_id,
 };

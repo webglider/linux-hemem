@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  linux/include/amba/bus.h
  *
@@ -6,10 +7,6 @@
  *  region or that is derived from a PrimeCell.
  *
  *  Copyright (C) 2003 Deep Blue Solutions Ltd, All Rights Reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #ifndef ASMARM_AMBA_H
 #define ASMARM_AMBA_H
@@ -68,6 +65,7 @@ struct amba_device {
 	struct device		dev;
 	struct resource		res;
 	struct clk		*pclk;
+	struct device_dma_parameters dma_parms;
 	unsigned int		periphid;
 	unsigned int		cid;
 	struct amba_cs_uci_id	uci;
@@ -78,7 +76,7 @@ struct amba_device {
 struct amba_driver {
 	struct device_driver	drv;
 	int			(*probe)(struct amba_device *, const struct amba_id *);
-	int			(*remove)(struct amba_device *);
+	void			(*remove)(struct amba_device *);
 	void			(*shutdown)(struct amba_device *);
 	const struct amba_id	*id_table;
 };
@@ -107,8 +105,19 @@ extern struct bus_type amba_bustype;
 #define amba_get_drvdata(d)	dev_get_drvdata(&d->dev)
 #define amba_set_drvdata(d,p)	dev_set_drvdata(&d->dev, p)
 
+#ifdef CONFIG_ARM_AMBA
 int amba_driver_register(struct amba_driver *);
 void amba_driver_unregister(struct amba_driver *);
+#else
+static inline int amba_driver_register(struct amba_driver *drv)
+{
+	return -EINVAL;
+}
+static inline void amba_driver_unregister(struct amba_driver *drv)
+{
+}
+#endif
+
 struct amba_device *amba_device_alloc(const char *, resource_size_t, size_t);
 void amba_device_put(struct amba_device *);
 int amba_device_add(struct amba_device *, struct resource *);

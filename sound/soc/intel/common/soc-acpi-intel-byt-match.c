@@ -1,17 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * soc-apci-intel-byt-match.c - tables and support for BYT ACPI enumeration.
+ * soc-acpi-intel-byt-match.c - tables and support for BYT ACPI enumeration.
  *
  * Copyright (c) 2017, Intel Corporation.
- *
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  */
 
 #include <linux/dmi.h>
@@ -20,12 +11,12 @@
 
 static unsigned long byt_machine_id;
 
-#define BYT_THINKPAD_10  1
+#define BYT_RT5672       1
 #define BYT_POV_P1006W   2
 
-static int byt_thinkpad10_quirk_cb(const struct dmi_system_id *id)
+static int byt_rt5672_quirk_cb(const struct dmi_system_id *id)
 {
-	byt_machine_id = BYT_THINKPAD_10;
+	byt_machine_id = BYT_RT5672;
 	return 1;
 }
 
@@ -37,28 +28,28 @@ static int byt_pov_p1006w_quirk_cb(const struct dmi_system_id *id)
 
 static const struct dmi_system_id byt_table[] = {
 	{
-		.callback = byt_thinkpad10_quirk_cb,
+		.callback = byt_rt5672_quirk_cb,
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad 8"),
 		},
 	},
 	{
-		.callback = byt_thinkpad10_quirk_cb,
+		.callback = byt_rt5672_quirk_cb,
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad 10"),
 		},
 	},
 	{
-		.callback = byt_thinkpad10_quirk_cb,
+		.callback = byt_rt5672_quirk_cb,
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad Tablet B"),
 		},
 	},
 	{
-		.callback = byt_thinkpad10_quirk_cb,
+		.callback = byt_rt5672_quirk_cb,
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo Miix 2 10"),
@@ -75,10 +66,27 @@ static const struct dmi_system_id byt_table[] = {
 			DMI_EXACT_MATCH(DMI_BOARD_NAME, "0E57"),
 		},
 	},
+	{
+		/* Aegex 10 tablet (RU2) */
+		.callback = byt_rt5672_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "AEGEX"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "RU2"),
+		},
+	},
+	{
+		/* Dell Venue 10 Pro 5055 */
+		.callback = byt_rt5672_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Venue 10 Pro 5055"),
+		},
+	},
 	{ }
 };
 
-static struct snd_soc_acpi_mach byt_thinkpad_10 = {
+/* Various devices use an ACPI id of 10EC5640 while using a rt5672 codec */
+static struct snd_soc_acpi_mach byt_rt5672 = {
 	.id = "10EC5640",
 	.drv_name = "cht-bsw-rt5672",
 	.fw_filename = "intel/fw_sst_0f28.bin",
@@ -103,29 +111,14 @@ static struct snd_soc_acpi_mach *byt_quirk(void *arg)
 	dmi_check_system(byt_table);
 
 	switch (byt_machine_id) {
-	case BYT_THINKPAD_10:
-		return &byt_thinkpad_10;
+	case BYT_RT5672:
+		return &byt_rt5672;
 	case BYT_POV_P1006W:
 		return &byt_pov_p1006w;
 	default:
 		return mach;
 	}
 }
-
-struct snd_soc_acpi_mach snd_soc_acpi_intel_baytrail_legacy_machines[] = {
-	{
-		.id = "10EC5640",
-		.drv_name = "byt-rt5640",
-		.fw_filename = "intel/fw_sst_0f28.bin-48kHz_i2s_master",
-	},
-	{
-		.id = "193C9890",
-		.drv_name = "byt-max98090",
-		.fw_filename = "intel/fw_sst_0f28.bin-48kHz_i2s_master",
-	},
-	{}
-};
-EXPORT_SYMBOL_GPL(snd_soc_acpi_intel_baytrail_legacy_machines);
 
 struct snd_soc_acpi_mach  snd_soc_acpi_intel_baytrail_machines[] = {
 	{
@@ -162,6 +155,22 @@ struct snd_soc_acpi_mach  snd_soc_acpi_intel_baytrail_machines[] = {
 		.sof_tplg_filename = "sof-byt-rt5651.tplg",
 	},
 	{
+		.id = "WM510204",
+		.drv_name = "bytcr_wm5102",
+		.fw_filename = "intel/fw_sst_0f28.bin",
+		.board = "bytcr_wm5102",
+		.sof_fw_filename = "sof-byt.ri",
+		.sof_tplg_filename = "sof-byt-wm5102.tplg",
+	},
+	{
+		.id = "WM510205",
+		.drv_name = "bytcr_wm5102",
+		.fw_filename = "intel/fw_sst_0f28.bin",
+		.board = "bytcr_wm5102",
+		.sof_fw_filename = "sof-byt.ri",
+		.sof_tplg_filename = "sof-byt-wm5102.tplg",
+	},
+	{
 		.id = "DLGS7212",
 		.drv_name = "bytcht_da7213",
 		.fw_filename = "intel/fw_sst_0f28.bin",
@@ -184,6 +193,12 @@ struct snd_soc_acpi_mach  snd_soc_acpi_intel_baytrail_machines[] = {
 		.board = "bytcht_es8316",
 		.sof_fw_filename = "sof-byt.ri",
 		.sof_tplg_filename = "sof-byt-es8316.tplg",
+	},
+	{
+		.id = "10EC5682",
+		.drv_name = "sof_rt5682",
+		.sof_fw_filename = "sof-byt.ri",
+		.sof_tplg_filename = "sof-byt-rt5682.tplg",
 	},
 	/* some Baytrail platforms rely on RT5645, use CHT machine driver */
 	{
@@ -211,6 +226,14 @@ struct snd_soc_acpi_mach  snd_soc_acpi_intel_baytrail_machines[] = {
 		.sof_fw_filename = "sof-byt.ri",
 		.sof_tplg_filename = "sof-byt-max98090.tplg",
 	},
+	{
+		.id = "14F10720",
+		.drv_name = "bytcht_cx2072x",
+		.fw_filename = "intel/fw_sst_0f28.bin",
+		.board = "bytcht_cx2072x",
+		.sof_fw_filename = "sof-byt.ri",
+		.sof_tplg_filename = "sof-byt-cx2072x.tplg",
+	},
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_BYT_CHT_NOCODEC_MACH)
 	/*
 	 * This is always last in the table so that it is selected only when
@@ -226,6 +249,3 @@ struct snd_soc_acpi_mach  snd_soc_acpi_intel_baytrail_machines[] = {
 	{},
 };
 EXPORT_SYMBOL_GPL(snd_soc_acpi_intel_baytrail_machines);
-
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("Intel Common ACPI Match module");

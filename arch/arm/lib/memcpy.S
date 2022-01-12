@@ -1,13 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  linux/arch/arm/lib/memcpy.S
  *
  *  Author:	Nicolas Pitre
  *  Created:	Sep 28, 2005
  *  Copyright:	MontaVista Software, Inc.
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2 as
- *  published by the Free Software Foundation.
  */
 
 #include <linux/linkage.h>
@@ -61,10 +58,12 @@
 
 /* Prototype: void *memcpy(void *dest, const void *src, size_t n); */
 
+ENTRY(__memcpy)
 ENTRY(mmiocpy)
-ENTRY(memcpy)
+WEAK(memcpy)
 
 #include "copy_template.S"
 
 ENDPROC(memcpy)
 ENDPROC(mmiocpy)
+ENDPROC(__memcpy)

@@ -42,29 +42,34 @@ void qxl_gem_prime_unpin(struct drm_gem_object *obj)
 	qxl_bo_unpin(bo);
 }
 
-void *qxl_gem_prime_vmap(struct drm_gem_object *obj)
+struct sg_table *qxl_gem_prime_get_sg_table(struct drm_gem_object *obj)
+{
+	return ERR_PTR(-ENOSYS);
+}
+
+struct drm_gem_object *qxl_gem_prime_import_sg_table(
+	struct drm_device *dev, struct dma_buf_attachment *attach,
+	struct sg_table *table)
+{
+	return ERR_PTR(-ENOSYS);
+}
+
+int qxl_gem_prime_vmap(struct drm_gem_object *obj, struct dma_buf_map *map)
 {
 	struct qxl_bo *bo = gem_to_qxl_bo(obj);
-	void *ptr;
 	int ret;
 
-	ret = qxl_bo_kmap(bo, &ptr);
+	ret = qxl_bo_vmap(bo, map);
 	if (ret < 0)
-		return ERR_PTR(ret);
+		return ret;
 
-	return ptr;
+	return 0;
 }
 
-void qxl_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr)
+void qxl_gem_prime_vunmap(struct drm_gem_object *obj,
+			  struct dma_buf_map *map)
 {
 	struct qxl_bo *bo = gem_to_qxl_bo(obj);
 
-	qxl_bo_kunmap(bo);
-}
-
-int qxl_gem_prime_mmap(struct drm_gem_object *obj,
-		       struct vm_area_struct *area)
-{
-	WARN_ONCE(1, "not implemented");
-	return -ENOSYS;
+	qxl_bo_vunmap(bo);
 }

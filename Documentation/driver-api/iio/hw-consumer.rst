@@ -8,7 +8,7 @@ software buffer for data. The implementation can be found under
 :file:`drivers/iio/buffer/hw-consumer.c`
 
 
-* struct :c:type:`iio_hw_consumer` — Hardware consumer structure
+* struct iio_hw_consumer — Hardware consumer structure
 * :c:func:`iio_hw_consumer_alloc` — Allocate IIO hardware consumer
 * :c:func:`iio_hw_consumer_free` — Free IIO hardware consumer
 * :c:func:`iio_hw_consumer_enable` — Enable IIO hardware consumer
@@ -45,7 +45,6 @@ A typical IIO HW consumer setup looks like this::
 
 More details
 ============
-.. kernel-doc:: include/linux/iio/hw-consumer.h
 .. kernel-doc:: drivers/iio/buffer/industrialio-hw-consumer.c
    :export:
 

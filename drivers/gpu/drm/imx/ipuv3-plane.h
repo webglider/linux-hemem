@@ -27,7 +27,6 @@ struct ipu_plane {
 	int			dp_flow;
 
 	bool			disabling;
-	int			next_buf;
 };
 
 struct ipu_plane *ipu_plane_init(struct drm_device *dev, struct ipu_soc *ipu,
@@ -41,9 +40,6 @@ int ipu_plane_mode_set(struct ipu_plane *plane, struct drm_crtc *crtc,
 		       unsigned int crtc_w, unsigned int crtc_h,
 		       uint32_t src_x, uint32_t src_y, uint32_t src_w,
 		       uint32_t src_h, bool interlaced);
-
-int ipu_plane_get_resources(struct ipu_plane *plane);
-void ipu_plane_put_resources(struct ipu_plane *plane);
 
 int ipu_plane_irq(struct ipu_plane *plane);
 

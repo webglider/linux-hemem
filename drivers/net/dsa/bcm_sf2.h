@@ -1,12 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Broadcom Starfighter2 private context
  *
  * Copyright (C) 2014, Broadcom Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #ifndef __BCM_SF2_H
@@ -22,6 +18,7 @@
 #include <linux/types.h>
 #include <linux/bitops.h>
 #include <linux/if_vlan.h>
+#include <linux/reset.h>
 
 #include <net/dsa.h>
 
@@ -47,7 +44,9 @@ struct bcm_sf2_hw_params {
 #define BCM_SF2_REGS_NUM	6
 
 struct bcm_sf2_port_status {
+	phy_interface_t mode;
 	unsigned int link;
+	bool enabled;
 };
 
 struct bcm_sf2_cfp_priv {
@@ -68,11 +67,14 @@ struct bcm_sf2_priv {
 	void __iomem			*fcb;
 	void __iomem			*acb;
 
+	struct reset_control		*rcdev;
+
 	/* Register offsets indirection tables */
 	u32 				type;
 	const u16			*reg_offsets;
 	unsigned int			core_reg_align;
 	unsigned int			num_cfp_rules;
+	unsigned int			num_crossbar_int_ports;
 
 	/* spinlock protecting access to the indirect registers */
 	spinlock_t			indir_lock;
@@ -93,6 +95,9 @@ struct bcm_sf2_priv {
 
 	/* Mask of ports enabled for Wake-on-LAN */
 	u32				wol_ports_mask;
+
+	struct clk			*clk;
+	struct clk			*clk_mdiv;
 
 	/* MoCA port location */
 	int				moca_port;

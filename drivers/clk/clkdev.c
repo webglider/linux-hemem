@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * drivers/clk/clkdev.c
  *
  *  Copyright (C) 2008 Russell King.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Helper for the clk API to assist looking up a struct clk.
  */
@@ -46,6 +43,8 @@ static struct clk_lookup *clk_find(const char *dev_id, const char *con_id)
 	if (con_id)
 		best_possible += 1;
 
+	lockdep_assert_held(&clocks_mutex);
+
 	list_for_each_entry(p, &clocks, node) {
 		match = 0;
 		if (p->dev_id) {
@@ -70,25 +69,26 @@ static struct clk_lookup *clk_find(const char *dev_id, const char *con_id)
 	return cl;
 }
 
+struct clk_hw *clk_find_hw(const char *dev_id, const char *con_id)
+{
+	struct clk_lookup *cl;
+	struct clk_hw *hw = ERR_PTR(-ENOENT);
+
+	mutex_lock(&clocks_mutex);
+	cl = clk_find(dev_id, con_id);
+	if (cl)
+		hw = cl->clk_hw;
+	mutex_unlock(&clocks_mutex);
+
+	return hw;
+}
+
 static struct clk *__clk_get_sys(struct device *dev, const char *dev_id,
 				 const char *con_id)
 {
-	struct clk_lookup *cl;
-	struct clk *clk = NULL;
+	struct clk_hw *hw = clk_find_hw(dev_id, con_id);
 
-	mutex_lock(&clocks_mutex);
-
-	cl = clk_find(dev_id, con_id);
-	if (!cl)
-		goto out;
-
-	clk = clk_hw_create_clk(dev, cl->clk_hw, dev_id, con_id);
-	if (IS_ERR(clk))
-		cl = NULL;
-out:
-	mutex_unlock(&clocks_mutex);
-
-	return cl ? clk : ERR_PTR(-ENOENT);
+	return clk_hw_create_clk(dev, hw, dev_id, con_id);
 }
 
 struct clk *clk_get_sys(const char *dev_id, const char *con_id)
@@ -189,34 +189,6 @@ vclkdev_create(struct clk_hw *hw, const char *con_id, const char *dev_fmt,
 
 	return cl;
 }
-
-struct clk_lookup * __ref
-clkdev_alloc(struct clk *clk, const char *con_id, const char *dev_fmt, ...)
-{
-	struct clk_lookup *cl;
-	va_list ap;
-
-	va_start(ap, dev_fmt);
-	cl = vclkdev_alloc(__clk_get_hw(clk), con_id, dev_fmt, ap);
-	va_end(ap);
-
-	return cl;
-}
-EXPORT_SYMBOL(clkdev_alloc);
-
-struct clk_lookup *
-clkdev_hw_alloc(struct clk_hw *hw, const char *con_id, const char *dev_fmt, ...)
-{
-	struct clk_lookup *cl;
-	va_list ap;
-
-	va_start(ap, dev_fmt);
-	cl = vclkdev_alloc(hw, con_id, dev_fmt, ap);
-	va_end(ap);
-
-	return cl;
-}
-EXPORT_SYMBOL(clkdev_hw_alloc);
 
 /**
  * clkdev_create - allocate and add a clkdev lookup structure
@@ -402,7 +374,10 @@ void devm_clk_release_clkdev(struct device *dev, const char *con_id,
 	struct clk_lookup *cl;
 	int rval;
 
+	mutex_lock(&clocks_mutex);
 	cl = clk_find(dev_id, con_id);
+	mutex_unlock(&clocks_mutex);
+
 	WARN_ON(!cl);
 	rval = devres_release(dev, devm_clkdev_release,
 			      devm_clk_match_clkdev, cl);

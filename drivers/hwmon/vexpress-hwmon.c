@@ -1,12 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  * Copyright (C) 2012 ARM Limited
  */
@@ -34,7 +27,7 @@ static ssize_t vexpress_hwmon_label_show(struct device *dev,
 {
 	const char *label = of_get_property(dev->of_node, "label", NULL);
 
-	return snprintf(buffer, PAGE_SIZE, "%s\n", label);
+	return sysfs_emit(buffer, "%s\n", label);
 }
 
 static ssize_t vexpress_hwmon_u32_show(struct device *dev,
@@ -48,8 +41,8 @@ static ssize_t vexpress_hwmon_u32_show(struct device *dev,
 	if (err)
 		return err;
 
-	return snprintf(buffer, PAGE_SIZE, "%u\n", value /
-			to_sensor_dev_attr(dev_attr)->index);
+	return sysfs_emit(buffer, "%u\n", value /
+			  to_sensor_dev_attr(dev_attr)->index);
 }
 
 static ssize_t vexpress_hwmon_u64_show(struct device *dev,
@@ -67,9 +60,9 @@ static ssize_t vexpress_hwmon_u64_show(struct device *dev,
 	if (err)
 		return err;
 
-	return snprintf(buffer, PAGE_SIZE, "%llu\n",
-			div_u64(((u64)value_hi << 32) | value_lo,
-			to_sensor_dev_attr(dev_attr)->index));
+	return sysfs_emit(buffer, "%llu\n",
+			  div_u64(((u64)value_hi << 32) | value_lo,
+				  to_sensor_dev_attr(dev_attr)->index));
 }
 
 static umode_t vexpress_hwmon_attr_is_visible(struct kobject *kobj,

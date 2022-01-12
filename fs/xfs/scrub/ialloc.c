@@ -9,25 +9,19 @@
 #include "xfs_format.h"
 #include "xfs_trans_resv.h"
 #include "xfs_mount.h"
-#include "xfs_defer.h"
 #include "xfs_btree.h"
-#include "xfs_bit.h"
 #include "xfs_log_format.h"
 #include "xfs_trans.h"
-#include "xfs_sb.h"
 #include "xfs_inode.h"
-#include "xfs_alloc.h"
 #include "xfs_ialloc.h"
 #include "xfs_ialloc_btree.h"
 #include "xfs_icache.h"
 #include "xfs_rmap.h"
-#include "xfs_log.h"
-#include "xfs_trans_priv.h"
-#include "scrub/xfs_scrub.h"
 #include "scrub/scrub.h"
 #include "scrub/common.h"
 #include "scrub/btree.h"
 #include "scrub/trace.h"
+#include "xfs_ag.h"
 
 /*
  * Set us up to scrub inode btrees.
@@ -36,10 +30,9 @@
  */
 int
 xchk_setup_ag_iallocbt(
-	struct xfs_scrub	*sc,
-	struct xfs_inode	*ip)
+	struct xfs_scrub	*sc)
 {
-	return xchk_setup_ag_btree(sc, ip, sc->try_harder);
+	return xchk_setup_ag_btree(sc, sc->flags & XCHK_TRY_HARDER);
 }
 
 /* Inode btree scrubber. */
@@ -111,7 +104,7 @@ xchk_iallocbt_chunk(
 	xfs_extlen_t			len)
 {
 	struct xfs_mount		*mp = bs->cur->bc_mp;
-	xfs_agnumber_t			agno = bs->cur->bc_private.a.agno;
+	xfs_agnumber_t			agno = bs->cur->bc_ag.pag->pag_agno;
 	xfs_agblock_t			bno;
 
 	bno = XFS_AGINO_TO_AGBNO(mp, agino);
@@ -171,7 +164,7 @@ xchk_iallocbt_check_cluster_ifree(
 	 * the record, compute which fs inode we're talking about.
 	 */
 	agino = irec->ir_startino + irec_ino;
-	fsino = XFS_AGINO_TO_INO(mp, bs->cur->bc_private.a.agno, agino);
+	fsino = XFS_AGINO_TO_INO(mp, bs->cur->bc_ag.pag->pag_agno, agino);
 	irec_free = (irec->ir_free & XFS_INOBT_MASK(irec_ino));
 
 	if (be16_to_cpu(dip->di_magic) != XFS_DINODE_MAGIC ||
@@ -185,7 +178,7 @@ xchk_iallocbt_check_cluster_ifree(
 	if (error == -ENODATA) {
 		/* Not cached, just read the disk buffer */
 		freemask_ok = irec_free ^ !!(dip->di_mode);
-		if (!bs->sc->try_harder && !freemask_ok)
+		if (!(bs->sc->flags & XCHK_TRY_HARDER) && !freemask_ok)
 			return -EDEADLOCK;
 	} else if (error < 0) {
 		/*
@@ -219,10 +212,9 @@ xchk_iallocbt_check_cluster(
 {
 	struct xfs_imap			imap;
 	struct xfs_mount		*mp = bs->cur->bc_mp;
-	struct xfs_dinode		*dip;
 	struct xfs_buf			*cluster_bp;
 	unsigned int			nr_inodes;
-	xfs_agnumber_t			agno = bs->cur->bc_private.a.agno;
+	xfs_agnumber_t			agno = bs->cur->bc_ag.pag->pag_agno;
 	xfs_agblock_t			agbno;
 	unsigned int			cluster_index;
 	uint16_t			cluster_mask = 0;
@@ -230,7 +222,7 @@ xchk_iallocbt_check_cluster(
 	int				error = 0;
 
 	nr_inodes = min_t(unsigned int, XFS_INODES_PER_CHUNK,
-			mp->m_inodes_per_cluster);
+			M_IGEO(mp)->inodes_per_cluster);
 
 	/* Map this inode cluster */
 	agbno = XFS_AGINO_TO_AGBNO(mp, irec->ir_startino + cluster_base);
@@ -251,8 +243,9 @@ xchk_iallocbt_check_cluster(
 	 */
 	ir_holemask = (irec->ir_holemask & cluster_mask);
 	imap.im_blkno = XFS_AGB_TO_DADDR(mp, agno, agbno);
-	imap.im_len = XFS_FSB_TO_BB(mp, mp->m_blocks_per_cluster);
-	imap.im_boffset = XFS_INO_TO_OFFSET(mp, irec->ir_startino);
+	imap.im_len = XFS_FSB_TO_BB(mp, M_IGEO(mp)->blocks_per_cluster);
+	imap.im_boffset = XFS_INO_TO_OFFSET(mp, irec->ir_startino) <<
+			mp->m_sb.sb_inodelog;
 
 	if (imap.im_boffset != 0 && cluster_base != 0) {
 		ASSERT(imap.im_boffset == 0 || cluster_base == 0);
@@ -275,17 +268,16 @@ xchk_iallocbt_check_cluster(
 	/* If any part of this is a hole, skip it. */
 	if (ir_holemask) {
 		xchk_xref_is_not_owned_by(bs->sc, agbno,
-				mp->m_blocks_per_cluster,
+				M_IGEO(mp)->blocks_per_cluster,
 				&XFS_RMAP_OINFO_INODES);
 		return 0;
 	}
 
-	xchk_xref_is_owned_by(bs->sc, agbno, mp->m_blocks_per_cluster,
+	xchk_xref_is_owned_by(bs->sc, agbno, M_IGEO(mp)->blocks_per_cluster,
 			&XFS_RMAP_OINFO_INODES);
 
 	/* Grab the inode cluster buffer. */
-	error = xfs_imap_to_bp(mp, bs->cur->bc_tp, &imap, &dip, &cluster_bp,
-			0, 0);
+	error = xfs_imap_to_bp(mp, bs->cur->bc_tp, &imap, &cluster_bp);
 	if (!xchk_btree_xref_process_error(bs->sc, bs->cur, 0, &error))
 		return error;
 
@@ -332,7 +324,7 @@ xchk_iallocbt_check_clusters(
 	 */
 	for (cluster_base = 0;
 	     cluster_base < XFS_INODES_PER_CHUNK;
-	     cluster_base += bs->sc->mp->m_inodes_per_cluster) {
+	     cluster_base += M_IGEO(bs->sc->mp)->inodes_per_cluster) {
 		error = xchk_iallocbt_check_cluster(bs, irec, cluster_base);
 		if (error)
 			break;
@@ -354,6 +346,7 @@ xchk_iallocbt_rec_alignment(
 {
 	struct xfs_mount		*mp = bs->sc->mp;
 	struct xchk_iallocbt		*iabt = bs->private;
+	struct xfs_ino_geometry		*igeo = M_IGEO(mp);
 
 	/*
 	 * finobt records have different positioning requirements than inobt
@@ -371,7 +364,7 @@ xchk_iallocbt_rec_alignment(
 		unsigned int	imask;
 
 		imask = min_t(unsigned int, XFS_INODES_PER_CHUNK,
-				mp->m_cluster_align_inodes) - 1;
+				igeo->cluster_align_inodes) - 1;
 		if (irec->ir_startino & imask)
 			xchk_btree_set_corrupt(bs->sc, bs->cur, 0);
 		return;
@@ -399,17 +392,17 @@ xchk_iallocbt_rec_alignment(
 	}
 
 	/* inobt records must be aligned to cluster and inoalignmnt size. */
-	if (irec->ir_startino & (mp->m_cluster_align_inodes - 1)) {
+	if (irec->ir_startino & (igeo->cluster_align_inodes - 1)) {
 		xchk_btree_set_corrupt(bs->sc, bs->cur, 0);
 		return;
 	}
 
-	if (irec->ir_startino & (mp->m_inodes_per_cluster - 1)) {
+	if (irec->ir_startino & (igeo->inodes_per_cluster - 1)) {
 		xchk_btree_set_corrupt(bs->sc, bs->cur, 0);
 		return;
 	}
 
-	if (mp->m_inodes_per_cluster <= XFS_INODES_PER_CHUNK)
+	if (igeo->inodes_per_cluster <= XFS_INODES_PER_CHUNK)
 		return;
 
 	/*
@@ -418,20 +411,20 @@ xchk_iallocbt_rec_alignment(
 	 * after this one.
 	 */
 	iabt->next_startino = irec->ir_startino + XFS_INODES_PER_CHUNK;
-	iabt->next_cluster_ino = irec->ir_startino + mp->m_inodes_per_cluster;
+	iabt->next_cluster_ino = irec->ir_startino + igeo->inodes_per_cluster;
 }
 
 /* Scrub an inobt/finobt record. */
 STATIC int
 xchk_iallocbt_rec(
 	struct xchk_btree		*bs,
-	union xfs_btree_rec		*rec)
+	const union xfs_btree_rec	*rec)
 {
 	struct xfs_mount		*mp = bs->cur->bc_mp;
 	struct xchk_iallocbt		*iabt = bs->private;
 	struct xfs_inobt_rec_incore	irec;
 	uint64_t			holes;
-	xfs_agnumber_t			agno = bs->cur->bc_private.a.agno;
+	xfs_agnumber_t			agno = bs->cur->bc_ag.pag->pag_agno;
 	xfs_agino_t			agino;
 	xfs_extlen_t			len;
 	int				holecount;
@@ -524,7 +517,7 @@ xchk_iallocbt_xref_rmap_btreeblks(
 	int			error;
 
 	if (!sc->sa.ino_cur || !sc->sa.rmap_cur ||
-	    (xfs_sb_version_hasfinobt(&sc->mp->m_sb) && !sc->sa.fino_cur) ||
+	    (xfs_has_finobt(sc->mp) && !sc->sa.fino_cur) ||
 	    xchk_skip_xref(sc->sm))
 		return;
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  htc-i2cpld.c
  *  Chip driver for an unknown CPLD chip found on omap850 HTC devices like
@@ -9,20 +10,6 @@
  *
  *  Based on work done in the linwizard project
  *  Copyright (C) 2008-2009 Angelo Arrifano <miknix@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/kernel.h>
@@ -359,6 +346,7 @@ static int htcpld_register_chip_i2c(
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_READ_BYTE_DATA)) {
 		dev_warn(dev, "i2c adapter %d non-functional\n",
 			 pdata->i2c_adapter_id);
+		i2c_put_adapter(adapter);
 		return -EINVAL;
 	}
 
@@ -368,12 +356,13 @@ static int htcpld_register_chip_i2c(
 	info.platform_data = chip;
 
 	/* Add the I2C device.  This calls the probe() function. */
-	client = i2c_new_device(adapter, &info);
-	if (!client) {
+	client = i2c_new_client_device(adapter, &info);
+	if (IS_ERR(client)) {
 		/* I2C device registration failed, contineu with the next */
 		dev_warn(dev, "Unable to add I2C device for 0x%x\n",
 			 plat_chip_data->addr);
-		return -ENODEV;
+		i2c_put_adapter(adapter);
+		return PTR_ERR(client);
 	}
 
 	i2c_set_clientdata(client, chip);
@@ -398,8 +387,7 @@ static void htcpld_unregister_chip_i2c(
 	htcpld = platform_get_drvdata(pdev);
 	chip = &htcpld->chip[chip_index];
 
-	if (chip->client)
-		i2c_unregister_device(chip->client);
+	i2c_unregister_device(chip->client);
 }
 
 static int htcpld_register_chip_gpio(

@@ -70,15 +70,16 @@ Documentation written by Tom Zanussi
   modified by appending any of the following modifiers to the field
   name:
 
-	=========== ==========================================
-        .hex        display a number as a hex value
-	.sym        display an address as a symbol
-	.sym-offset display an address as a symbol and offset
-	.syscall    display a syscall id as a system call name
-	.execname   display a common_pid as a program name
-	.log2       display log2 value rather than raw number
-	.usecs      display a common_timestamp in microseconds
-	=========== ==========================================
+	=============  =================================================
+        .hex           display a number as a hex value
+	.sym           display an address as a symbol
+	.sym-offset    display an address as a symbol and offset
+	.syscall       display a syscall id as a system call name
+	.execname      display a common_pid as a program name
+	.log2          display log2 value rather than raw number
+	.buckets=size  display grouping of values rather than raw number
+	.usecs         display a common_timestamp in microseconds
+	=============  =================================================
 
   Note that in general the semantics of a given field aren't
   interpreted when applying a modifier to it, but there are some
@@ -191,7 +192,7 @@ Documentation written by Tom Zanussi
                                 with the event, in nanoseconds.  May be
 			        modified by .usecs to have timestamps
 			        interpreted as microseconds.
-    cpu                    int  the cpu on which the event occurred.
+    common_cpu             int  the cpu on which the event occurred.
     ====================== ==== =======================================
 
 Extended error information
@@ -199,20 +200,8 @@ Extended error information
 
   For some error conditions encountered when invoking a hist trigger
   command, extended error information is available via the
-  corresponding event's 'hist' file.  Reading the hist file after an
-  error will display more detailed information about what went wrong,
-  if information is available.  This extended error information will
-  be available until the next hist trigger command for that event.
-
-  If available for a given error condition, the extended error
-  information and usage takes the following form::
-
-    # echo xxx > /sys/kernel/debug/tracing/events/sched/sched_wakeup/trigger
-    echo: write error: Invalid argument
-
-    # cat /sys/kernel/debug/tracing/events/sched/sched_wakeup/hist
-    ERROR: Couldn't yyy: zzz
-      Last command: xxx
+  tracing/error_log file.  See Error Conditions in
+  :file:`Documentation/trace/ftrace.rst` for details.
 
 6.2 'hist' trigger examples
 ---------------------------
@@ -240,7 +229,7 @@ Extended error information
   that lists the total number of bytes requested for each function in
   the kernel that made one or more calls to kmalloc::
 
-    # echo 'hist:key=call_site:val=bytes_req' > \
+    # echo 'hist:key=call_site:val=bytes_req.buckets=32' > \
             /sys/kernel/debug/tracing/events/kmem/kmalloc/trigger
 
   This tells the tracing system to create a 'hist' trigger using the
@@ -1022,7 +1011,7 @@ Extended error information
 
   For example, suppose we wanted to take a look at the relative
   weights in terms of skb length for each callpath that leads to a
-  netif_receieve_skb event when downloading a decent-sized file using
+  netif_receive_skb event when downloading a decent-sized file using
   wget.
 
   First we set up an initially paused stacktrace trigger on the
@@ -1507,7 +1496,7 @@ Extended error information
     #
 
     { stacktrace:
-             _do_fork+0x18e/0x330
+             kernel_clone+0x18e/0x330
              kernel_thread+0x29/0x30
              kthreadd+0x154/0x1b0
              ret_from_fork+0x3f/0x70
@@ -1600,7 +1589,7 @@ Extended error information
              SYSC_sendto+0xef/0x170
     } hitcount:         88
     { stacktrace:
-             _do_fork+0x18e/0x330
+             kernel_clone+0x18e/0x330
              SyS_clone+0x19/0x20
              entry_SYSCALL_64_fastpath+0x12/0x6a
     } hitcount:        244
@@ -1788,6 +1777,24 @@ consisting of the name of the new event along with one or more
 variables and their types, which can be any valid field type,
 separated by semicolons, to the tracing/synthetic_events file.
 
+See synth_field_size() for available types.
+
+If field_name contains [n], the field is considered to be a static array.
+
+If field_names contains[] (no subscript), the field is considered to
+be a dynamic array, which will only take as much space in the event as
+is required to hold the array.
+
+A string field can be specified using either the static notation:
+
+  char name[32];
+
+Or the dynamic:
+
+  char name[];
+
+The size limit for either is 256.
+
 For instance, the following creates a new event named 'wakeup_latency'
 with 3 fields: lat, pid, and prio.  Each of those fields is simply a
 variable reference to a variable on another event::
@@ -1817,19 +1824,98 @@ and variables defined on other events (see Section 2.2.3 below on
 how that is done using hist trigger 'onmatch' action). Once that is
 done, the 'wakeup_latency' synthetic event instance is created.
 
-A histogram can now be defined for the new synthetic event::
-
-  # echo 'hist:keys=pid,prio,lat.log2:sort=pid,lat' >> \
-        /sys/kernel/debug/tracing/events/synthetic/wakeup_latency/trigger
-
 The new event is created under the tracing/events/synthetic/ directory
 and looks and behaves just like any other event::
 
   # ls /sys/kernel/debug/tracing/events/synthetic/wakeup_latency
         enable  filter  format  hist  id  trigger
 
+A histogram can now be defined for the new synthetic event::
+
+  # echo 'hist:keys=pid,prio,lat.log2:sort=lat' >> \
+        /sys/kernel/debug/tracing/events/synthetic/wakeup_latency/trigger
+
+The above shows the latency "lat" in a power of 2 grouping.
+
 Like any other event, once a histogram is enabled for the event, the
 output can be displayed by reading the event's 'hist' file.
+
+  # cat /sys/kernel/debug/tracing/events/synthetic/wakeup_latency/hist
+
+  # event histogram
+  #
+  # trigger info: hist:keys=pid,prio,lat.log2:vals=hitcount:sort=lat.log2:size=2048 [active]
+  #
+
+  { pid:       2035, prio:          9, lat: ~ 2^2  } hitcount:         43
+  { pid:       2034, prio:          9, lat: ~ 2^2  } hitcount:         60
+  { pid:       2029, prio:          9, lat: ~ 2^2  } hitcount:        965
+  { pid:       2034, prio:        120, lat: ~ 2^2  } hitcount:          9
+  { pid:       2033, prio:        120, lat: ~ 2^2  } hitcount:          5
+  { pid:       2030, prio:          9, lat: ~ 2^2  } hitcount:        335
+  { pid:       2030, prio:        120, lat: ~ 2^2  } hitcount:         10
+  { pid:       2032, prio:        120, lat: ~ 2^2  } hitcount:          1
+  { pid:       2035, prio:        120, lat: ~ 2^2  } hitcount:          2
+  { pid:       2031, prio:          9, lat: ~ 2^2  } hitcount:        176
+  { pid:       2028, prio:        120, lat: ~ 2^2  } hitcount:         15
+  { pid:       2033, prio:          9, lat: ~ 2^2  } hitcount:         91
+  { pid:       2032, prio:          9, lat: ~ 2^2  } hitcount:        125
+  { pid:       2029, prio:        120, lat: ~ 2^2  } hitcount:          4
+  { pid:       2031, prio:        120, lat: ~ 2^2  } hitcount:          3
+  { pid:       2029, prio:        120, lat: ~ 2^3  } hitcount:          2
+  { pid:       2035, prio:          9, lat: ~ 2^3  } hitcount:         41
+  { pid:       2030, prio:        120, lat: ~ 2^3  } hitcount:          1
+  { pid:       2032, prio:          9, lat: ~ 2^3  } hitcount:         32
+  { pid:       2031, prio:          9, lat: ~ 2^3  } hitcount:         44
+  { pid:       2034, prio:          9, lat: ~ 2^3  } hitcount:         40
+  { pid:       2030, prio:          9, lat: ~ 2^3  } hitcount:         29
+  { pid:       2033, prio:          9, lat: ~ 2^3  } hitcount:         31
+  { pid:       2029, prio:          9, lat: ~ 2^3  } hitcount:         31
+  { pid:       2028, prio:        120, lat: ~ 2^3  } hitcount:         18
+  { pid:       2031, prio:        120, lat: ~ 2^3  } hitcount:          2
+  { pid:       2028, prio:        120, lat: ~ 2^4  } hitcount:          1
+  { pid:       2029, prio:          9, lat: ~ 2^4  } hitcount:          4
+  { pid:       2031, prio:        120, lat: ~ 2^7  } hitcount:          1
+  { pid:       2032, prio:        120, lat: ~ 2^7  } hitcount:          1
+
+  Totals:
+      Hits: 2122
+      Entries: 30
+      Dropped: 0
+
+
+The latency values can also be grouped linearly by a given size with
+the ".buckets" modifier and specify a size (in this case groups of 10).
+
+  # echo 'hist:keys=pid,prio,lat.buckets=10:sort=lat' >> \
+        /sys/kernel/debug/tracing/events/synthetic/wakeup_latency/trigger
+
+  # event histogram
+  #
+  # trigger info: hist:keys=pid,prio,lat.buckets=10:vals=hitcount:sort=lat.buckets=10:size=2048 [active]
+  #
+
+  { pid:       2067, prio:          9, lat: ~ 0-9 } hitcount:        220
+  { pid:       2068, prio:          9, lat: ~ 0-9 } hitcount:        157
+  { pid:       2070, prio:          9, lat: ~ 0-9 } hitcount:        100
+  { pid:       2067, prio:        120, lat: ~ 0-9 } hitcount:          6
+  { pid:       2065, prio:        120, lat: ~ 0-9 } hitcount:          2
+  { pid:       2066, prio:        120, lat: ~ 0-9 } hitcount:          2
+  { pid:       2069, prio:          9, lat: ~ 0-9 } hitcount:        122
+  { pid:       2069, prio:        120, lat: ~ 0-9 } hitcount:          8
+  { pid:       2070, prio:        120, lat: ~ 0-9 } hitcount:          1
+  { pid:       2068, prio:        120, lat: ~ 0-9 } hitcount:          7
+  { pid:       2066, prio:          9, lat: ~ 0-9 } hitcount:        365
+  { pid:       2064, prio:        120, lat: ~ 0-9 } hitcount:         35
+  { pid:       2065, prio:          9, lat: ~ 0-9 } hitcount:        998
+  { pid:       2071, prio:          9, lat: ~ 0-9 } hitcount:         85
+  { pid:       2065, prio:          9, lat: ~ 10-19 } hitcount:          2
+  { pid:       2064, prio:        120, lat: ~ 10-19 } hitcount:          2
+
+  Totals:
+      Hits: 2112
+      Entries: 16
+      Dropped: 0
 
 2.2.3 Hist trigger 'handlers' and 'actions'
 -------------------------------------------
@@ -1855,7 +1941,7 @@ practice, not every handler.action combination is currently supported;
 if a given handler.action combination isn't supported, the hist
 trigger will fail with -EINVAL;
 
-The default 'handler.action' if none is explicity specified is as it
+The default 'handler.action' if none is explicitly specified is as it
 always has been, to simply update the set of values associated with an
 entry.  Some applications, however, may want to perform additional
 actions at that point, such as generate another event, or compare and
@@ -1915,7 +2001,10 @@ The following commonly-used handler.action pairs are available:
 
     The 'matching.event' specification is simply the fully qualified
     event name of the event that matches the target event for the
-    onmatch() functionality, in the form 'system.event_name'.
+    onmatch() functionality, in the form 'system.event_name'. Histogram
+    keys of both events are compared to find if events match. In case
+    multiple histogram keys are used, they all must match in the specified
+    order.
 
     Finally, the number and type of variables/fields in the 'param
     list' must match the number and types of the fields in the
@@ -1978,9 +2067,9 @@ The following commonly-used handler.action pairs are available:
 	      /sys/kernel/debug/tracing/events/sched/sched_waking/trigger
 
     Then, when the corresponding thread is actually scheduled onto the
-    CPU by a sched_switch event, calculate the latency and use that
-    along with another variable and an event field to generate a
-    wakeup_latency synthetic event::
+    CPU by a sched_switch event (saved_pid matches next_pid), calculate
+    the latency and use that along with another variable and an event field
+    to generate a wakeup_latency synthetic event::
 
       # echo 'hist:keys=next_pid:wakeup_lat=common_timestamp.usecs-$ts0:\
               onmatch(sched.sched_waking).wakeup_latency($wakeup_lat,\
@@ -2097,7 +2186,7 @@ The following commonly-used handler.action pairs are available:
     and the saved values corresponding to the max are displayed
     following the rest of the fields.
 
-    If a snaphot was taken, there is also a message indicating that,
+    If a snapshot was taken, there is also a message indicating that,
     along with the value and event that triggered the global maximum:
 
     # cat /sys/kernel/debug/tracing/events/sched/sched_switch/hist
@@ -2133,33 +2222,33 @@ The following commonly-used handler.action pairs are available:
     the end the event that triggered the snapshot (in this case you
     can verify the timestamps between the sched_waking and
     sched_switch events, which should match the time displayed in the
-    global maximum):
+    global maximum)::
 
-    # cat /sys/kernel/debug/tracing/snapshot
+     # cat /sys/kernel/debug/tracing/snapshot
 
-     <...>-2103  [005] d..3   309.873125: sched_switch: prev_comm=cyclictest prev_pid=2103 prev_prio=19 prev_state=D ==> next_comm=swapper/5 next_pid=0 next_prio=120
-     <idle>-0     [005] d.h3   309.873611: sched_waking: comm=cyclictest pid=2102 prio=19 target_cpu=005
-     <idle>-0     [005] dNh4   309.873613: sched_wakeup: comm=cyclictest pid=2102 prio=19 target_cpu=005
-     <idle>-0     [005] d..3   309.873616: sched_switch: prev_comm=swapper/5 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=cyclictest next_pid=2102 next_prio=19
-     <...>-2102  [005] d..3   309.873625: sched_switch: prev_comm=cyclictest prev_pid=2102 prev_prio=19 prev_state=D ==> next_comm=swapper/5 next_pid=0 next_prio=120
-     <idle>-0     [005] d.h3   309.874624: sched_waking: comm=cyclictest pid=2102 prio=19 target_cpu=005
-     <idle>-0     [005] dNh4   309.874626: sched_wakeup: comm=cyclictest pid=2102 prio=19 target_cpu=005
-     <idle>-0     [005] dNh3   309.874628: sched_waking: comm=cyclictest pid=2103 prio=19 target_cpu=005
-     <idle>-0     [005] dNh4   309.874630: sched_wakeup: comm=cyclictest pid=2103 prio=19 target_cpu=005
-     <idle>-0     [005] d..3   309.874633: sched_switch: prev_comm=swapper/5 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=cyclictest next_pid=2102 next_prio=19
-     <idle>-0     [004] d.h3   309.874757: sched_waking: comm=gnome-terminal- pid=1699 prio=120 target_cpu=004
-     <idle>-0     [004] dNh4   309.874762: sched_wakeup: comm=gnome-terminal- pid=1699 prio=120 target_cpu=004
-     <idle>-0     [004] d..3   309.874766: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=gnome-terminal- next_pid=1699 next_prio=120
- gnome-terminal--1699  [004] d.h2   309.874941: sched_stat_runtime: comm=gnome-terminal- pid=1699 runtime=180706 [ns] vruntime=1126870572 [ns]
-     <idle>-0     [003] d.s4   309.874956: sched_waking: comm=rcu_sched pid=9 prio=120 target_cpu=007
-     <idle>-0     [003] d.s5   309.874960: sched_wake_idle_without_ipi: cpu=7
-     <idle>-0     [003] d.s5   309.874961: sched_wakeup: comm=rcu_sched pid=9 prio=120 target_cpu=007
-     <idle>-0     [007] d..3   309.874963: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=rcu_sched next_pid=9 next_prio=120
-  rcu_sched-9     [007] d..3   309.874973: sched_stat_runtime: comm=rcu_sched pid=9 runtime=13646 [ns] vruntime=22531430286 [ns]
-  rcu_sched-9     [007] d..3   309.874978: sched_switch: prev_comm=rcu_sched prev_pid=9 prev_prio=120 prev_state=R+ ==> next_comm=swapper/7 next_pid=0 next_prio=120
-      <...>-2102  [005] d..4   309.874994: sched_migrate_task: comm=cyclictest pid=2103 prio=19 orig_cpu=5 dest_cpu=1
-      <...>-2102  [005] d..4   309.875185: sched_wake_idle_without_ipi: cpu=1
-     <idle>-0     [001] d..3   309.875200: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=cyclictest next_pid=2103 next_prio=19
+         <...>-2103  [005] d..3   309.873125: sched_switch: prev_comm=cyclictest prev_pid=2103 prev_prio=19 prev_state=D ==> next_comm=swapper/5 next_pid=0 next_prio=120
+         <idle>-0     [005] d.h3   309.873611: sched_waking: comm=cyclictest pid=2102 prio=19 target_cpu=005
+         <idle>-0     [005] dNh4   309.873613: sched_wakeup: comm=cyclictest pid=2102 prio=19 target_cpu=005
+         <idle>-0     [005] d..3   309.873616: sched_switch: prev_comm=swapper/5 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=cyclictest next_pid=2102 next_prio=19
+         <...>-2102  [005] d..3   309.873625: sched_switch: prev_comm=cyclictest prev_pid=2102 prev_prio=19 prev_state=D ==> next_comm=swapper/5 next_pid=0 next_prio=120
+         <idle>-0     [005] d.h3   309.874624: sched_waking: comm=cyclictest pid=2102 prio=19 target_cpu=005
+         <idle>-0     [005] dNh4   309.874626: sched_wakeup: comm=cyclictest pid=2102 prio=19 target_cpu=005
+         <idle>-0     [005] dNh3   309.874628: sched_waking: comm=cyclictest pid=2103 prio=19 target_cpu=005
+         <idle>-0     [005] dNh4   309.874630: sched_wakeup: comm=cyclictest pid=2103 prio=19 target_cpu=005
+         <idle>-0     [005] d..3   309.874633: sched_switch: prev_comm=swapper/5 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=cyclictest next_pid=2102 next_prio=19
+         <idle>-0     [004] d.h3   309.874757: sched_waking: comm=gnome-terminal- pid=1699 prio=120 target_cpu=004
+         <idle>-0     [004] dNh4   309.874762: sched_wakeup: comm=gnome-terminal- pid=1699 prio=120 target_cpu=004
+         <idle>-0     [004] d..3   309.874766: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=gnome-terminal- next_pid=1699 next_prio=120
+     gnome-terminal--1699  [004] d.h2   309.874941: sched_stat_runtime: comm=gnome-terminal- pid=1699 runtime=180706 [ns] vruntime=1126870572 [ns]
+         <idle>-0     [003] d.s4   309.874956: sched_waking: comm=rcu_sched pid=9 prio=120 target_cpu=007
+         <idle>-0     [003] d.s5   309.874960: sched_wake_idle_without_ipi: cpu=7
+         <idle>-0     [003] d.s5   309.874961: sched_wakeup: comm=rcu_sched pid=9 prio=120 target_cpu=007
+         <idle>-0     [007] d..3   309.874963: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=rcu_sched next_pid=9 next_prio=120
+      rcu_sched-9     [007] d..3   309.874973: sched_stat_runtime: comm=rcu_sched pid=9 runtime=13646 [ns] vruntime=22531430286 [ns]
+      rcu_sched-9     [007] d..3   309.874978: sched_switch: prev_comm=rcu_sched prev_pid=9 prev_prio=120 prev_state=R+ ==> next_comm=swapper/7 next_pid=0 next_prio=120
+          <...>-2102  [005] d..4   309.874994: sched_migrate_task: comm=cyclictest pid=2103 prio=19 orig_cpu=5 dest_cpu=1
+          <...>-2102  [005] d..4   309.875185: sched_wake_idle_without_ipi: cpu=1
+         <idle>-0     [001] d..3   309.875200: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=S ==> next_comm=cyclictest next_pid=2103 next_prio=19
 
   - onchange(var).save(field,..	.)
 
@@ -2185,7 +2274,7 @@ The following commonly-used handler.action pairs are available:
     hist trigger entry.
 
     Note that in this case the changed value is a global variable
-    associated withe current trace instance.  The key of the specific
+    associated with current trace instance.  The key of the specific
     trace event that caused the value to change and the global value
     itself are displayed, along with a message stating that a snapshot
     has been taken and where to find it.  The user can use the key
@@ -2212,10 +2301,11 @@ The following commonly-used handler.action pairs are available:
     and the saved values corresponding to that value are displayed
     following the rest of the fields.
 
-    If a snaphot was taken, there is also a message indicating that,
-    along with the value and event that triggered the snapshot:
+    If a snapshot was taken, there is also a message indicating that,
+    along with the value and event that triggered the snapshot::
 
-    # cat /sys/kernel/debug/tracing/events/tcp/tcp_probe/hist
+      # cat /sys/kernel/debug/tracing/events/tcp/tcp_probe/hist
+
       { dport:       1521 } hitcount:          8
 	changed:         10  snd_wnd:      35456  srtt:     154262  rcv_wnd:      42112
 
@@ -2228,14 +2318,15 @@ The following commonly-used handler.action pairs are available:
       { dport:        443 } hitcount:        211
 	changed:         10  snd_wnd:      26960  srtt:      17379  rcv_wnd:      28800
 
-    Snapshot taken (see tracing/snapshot).  Details:
+    Snapshot taken (see tracing/snapshot).  Details::
+
         triggering value { onchange($cwnd) }:         10
         triggered by event with key: { dport:         80 }
 
-    Totals:
-        Hits: 414
-        Entries: 4
-        Dropped: 0
+      Totals:
+          Hits: 414
+          Entries: 4
+          Dropped: 0
 
     In the above case, the event that triggered the snapshot has the
     key with dport == 80.  If you look at the bucket that has 80 as
@@ -2245,18 +2336,18 @@ The following commonly-used handler.action pairs are available:
     the global snapshot).
 
     And finally, looking at the snapshot data should show at or near
-    the end the event that triggered the snapshot:
+    the end the event that triggered the snapshot::
 
-    # cat /sys/kernel/debug/tracing/snapshot
+      # cat /sys/kernel/debug/tracing/snapshot
 
-       gnome-shell-1261  [006] dN.3    49.823113: sched_stat_runtime: comm=gnome-shell pid=1261 runtime=49347 [ns] vruntime=1835730389 [ns]
-     kworker/u16:4-773   [003] d..3    49.823114: sched_switch: prev_comm=kworker/u16:4 prev_pid=773 prev_prio=120 prev_state=R+ ==> next_comm=kworker/3:2 next_pid=135 next_prio=120
-       gnome-shell-1261  [006] d..3    49.823114: sched_switch: prev_comm=gnome-shell prev_pid=1261 prev_prio=120 prev_state=R+ ==> next_comm=kworker/6:2 next_pid=387 next_prio=120
-       kworker/3:2-135   [003] d..3    49.823118: sched_stat_runtime: comm=kworker/3:2 pid=135 runtime=5339 [ns] vruntime=17815800388 [ns]
-       kworker/6:2-387   [006] d..3    49.823120: sched_stat_runtime: comm=kworker/6:2 pid=387 runtime=9594 [ns] vruntime=14589605367 [ns]
-       kworker/6:2-387   [006] d..3    49.823122: sched_switch: prev_comm=kworker/6:2 prev_pid=387 prev_prio=120 prev_state=R+ ==> next_comm=gnome-shell next_pid=1261 next_prio=120
-       kworker/3:2-135   [003] d..3    49.823123: sched_switch: prev_comm=kworker/3:2 prev_pid=135 prev_prio=120 prev_state=T ==> next_comm=swapper/3 next_pid=0 next_prio=120
-            <idle>-0     [004] ..s7    49.823798: tcp_probe: src=10.0.0.10:54326 dest=23.215.104.193:80 mark=0x0 length=32 snd_nxt=0xe3ae2ff5 snd_una=0xe3ae2ecd snd_cwnd=10 ssthresh=2147483647 snd_wnd=28960 srtt=19604 rcv_wnd=29312
+         gnome-shell-1261  [006] dN.3    49.823113: sched_stat_runtime: comm=gnome-shell pid=1261 runtime=49347 [ns] vruntime=1835730389 [ns]
+       kworker/u16:4-773   [003] d..3    49.823114: sched_switch: prev_comm=kworker/u16:4 prev_pid=773 prev_prio=120 prev_state=R+ ==> next_comm=kworker/3:2 next_pid=135 next_prio=120
+         gnome-shell-1261  [006] d..3    49.823114: sched_switch: prev_comm=gnome-shell prev_pid=1261 prev_prio=120 prev_state=R+ ==> next_comm=kworker/6:2 next_pid=387 next_prio=120
+         kworker/3:2-135   [003] d..3    49.823118: sched_stat_runtime: comm=kworker/3:2 pid=135 runtime=5339 [ns] vruntime=17815800388 [ns]
+         kworker/6:2-387   [006] d..3    49.823120: sched_stat_runtime: comm=kworker/6:2 pid=387 runtime=9594 [ns] vruntime=14589605367 [ns]
+         kworker/6:2-387   [006] d..3    49.823122: sched_switch: prev_comm=kworker/6:2 prev_pid=387 prev_prio=120 prev_state=R+ ==> next_comm=gnome-shell next_pid=1261 next_prio=120
+         kworker/3:2-135   [003] d..3    49.823123: sched_switch: prev_comm=kworker/3:2 prev_pid=135 prev_prio=120 prev_state=T ==> next_comm=swapper/3 next_pid=0 next_prio=120
+              <idle>-0     [004] ..s7    49.823798: tcp_probe: src=10.0.0.10:54326 dest=23.215.104.193:80 mark=0x0 length=32 snd_nxt=0xe3ae2ff5 snd_una=0xe3ae2ecd snd_cwnd=10 ssthresh=2147483647 snd_wnd=28960 srtt=19604 rcv_wnd=29312
 
 3. User space creating a trigger
 --------------------------------

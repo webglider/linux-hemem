@@ -1,39 +1,22 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * ntc_thermistor.c - NTC Thermistors
  *
  *  Copyright (C) 2010 Samsung Electronics
  *  MyungJoo Ham <myungjoo.ham@samsung.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
  */
 
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/pm_runtime.h>
 #include <linux/math64.h>
 #include <linux/platform_device.h>
 #include <linux/err.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/fixp-arith.h>
 
 #include <linux/platform_data/ntc_thermistor.h>
 
-#include <linux/iio/iio.h>
-#include <linux/iio/machine.h>
-#include <linux/iio/driver.h>
 #include <linux/iio/consumer.h>
 
 #include <linux/hwmon.h>
@@ -340,18 +323,27 @@ struct ntc_data {
 static int ntc_adc_iio_read(struct ntc_thermistor_platform_data *pdata)
 {
 	struct iio_channel *channel = pdata->chan;
-	int raw, uv, ret;
+	int uv, ret;
 
-	ret = iio_read_channel_raw(channel, &raw);
+	ret = iio_read_channel_processed_scale(channel, &uv, 1000);
 	if (ret < 0) {
-		pr_err("read channel() error: %d\n", ret);
-		return ret;
-	}
+		int raw;
 
-	ret = iio_convert_raw_to_processed(channel, raw, &uv, 1000);
-	if (ret < 0) {
-		/* Assume 12 bit ADC with vref at pullup_uv */
-		uv = (pdata->pullup_uv * (s64)raw) >> 12;
+		/*
+		 * This fallback uses a raw read and then
+		 * assumes the ADC is 12 bits, scaling with
+		 * a factor 1000 to get to microvolts.
+		 */
+		ret = iio_read_channel_raw(channel, &raw);
+		if (ret < 0) {
+			pr_err("read channel() error: %d\n", ret);
+			return ret;
+		}
+		ret = iio_convert_raw_to_processed(channel, raw, &uv, 1000);
+		if (ret < 0) {
+			/* Assume 12 bit ADC with vref at pullup_uv */
+			uv = (pdata->pullup_uv * (s64)raw) >> 12;
+		}
 	}
 
 	return uv;
@@ -558,15 +550,16 @@ static int get_temp_mc(struct ntc_data *data, unsigned int ohm)
 	int temp;
 
 	lookup_comp(data, ohm, &low, &high);
-	if (low == high) {
-		/* Unable to use linear approximation */
-		temp = data->comp[low].temp_c * 1000;
-	} else {
-		temp = data->comp[low].temp_c * 1000 +
-			((data->comp[high].temp_c - data->comp[low].temp_c) *
-			 1000 * ((int)ohm - (int)data->comp[low].ohm)) /
-			((int)data->comp[high].ohm - (int)data->comp[low].ohm);
-	}
+	/*
+	 * First multiplying the table temperatures with 1000 to get to
+	 * millicentigrades (which is what we want) and then interpolating
+	 * will give the best precision.
+	 */
+	temp = fixp_linear_interpolate(data->comp[low].ohm,
+				       data->comp[low].temp_c * 1000,
+				       data->comp[high].ohm,
+				       data->comp[high].temp_c * 1000,
+				       ohm);
 	return temp;
 }
 
@@ -629,29 +622,9 @@ static umode_t ntc_is_visible(const void *data, enum hwmon_sensor_types type,
 	return 0;
 }
 
-static const u32 ntc_chip_config[] = {
-	HWMON_C_REGISTER_TZ,
-	0
-};
-
-static const struct hwmon_channel_info ntc_chip = {
-	.type = hwmon_chip,
-	.config = ntc_chip_config,
-};
-
-static const u32 ntc_temp_config[] = {
-	HWMON_T_INPUT | HWMON_T_TYPE,
-	0
-};
-
-static const struct hwmon_channel_info ntc_temp = {
-	.type = hwmon_temp,
-	.config = ntc_temp_config,
-};
-
 static const struct hwmon_channel_info *ntc_info[] = {
-	&ntc_chip,
-	&ntc_temp,
+	HWMON_CHANNEL_INFO(chip, HWMON_C_REGISTER_TZ),
+	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT | HWMON_T_TYPE),
 	NULL
 };
 

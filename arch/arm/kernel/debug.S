@@ -1,11 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  linux/arch/arm/kernel/debug.S
  *
  *  Copyright (C) 1994-1999 Russell King
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  *  32-bit debugging code
  */
@@ -92,11 +89,18 @@ ENTRY(printascii)
 2:		teq     r1, #'\n'
 		bne	3f
 		mov	r1, #'\r'
-		waituart r2, r3
+#ifdef CONFIG_DEBUG_UART_FLOW_CONTROL
+		waituartcts r2, r3
+#endif
+		waituarttxrdy r2, r3
 		senduart r1, r3
 		busyuart r2, r3
 		mov	r1, #'\n'
-3:		waituart r2, r3
+3:
+#ifdef CONFIG_DEBUG_UART_FLOW_CONTROL
+		waituartcts r2, r3
+#endif
+		waituarttxrdy r2, r3
 		senduart r1, r3
 		busyuart r2, r3
 		b	1b

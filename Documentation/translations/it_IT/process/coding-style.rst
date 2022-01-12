@@ -62,7 +62,7 @@ i ``case``.  Un esempio.:
 	case 'K':
 	case 'k':
 		mem <<= 10;
-		/* fall through */
+		fallthrough;
 	default:
 		break;
 	}
@@ -75,8 +75,25 @@ stessa riga:
 	if (condition) do_this;
 	  do_something_everytime;
 
-né mettete più assegnamenti sulla stessa riga.  Lo stile del kernel
+Non usate le virgole per evitare le parentesi:
+
+.. code-block:: c
+
+	if (condition)
+               do_this(), do_that();
+
+Invece, usate sempre le parentesi per racchiudere più istruzioni.
+
+.. code-block:: c
+
+	if (condition) {
+               do_this();
+               do_that();
+       }
+
+Non mettete nemmeno più assegnamenti sulla stessa riga.  Lo stile del kernel
 è ultrasemplice.  Evitate espressioni intricate.
+
 
 Al di fuori dei commenti, della documentazione ed escludendo i Kconfig, gli
 spazi non vengono mai usati per l'indentazione, e l'esempio qui sopra è
@@ -92,16 +109,22 @@ delle righe.
 Lo stile del codice riguarda la leggibilità e la manutenibilità utilizzando
 strumenti comuni.
 
-Il limite delle righe è di 80 colonne e questo e un limite fortemente
-desiderato.
+Come limite di riga si preferiscono le 80 colonne.
 
-Espressioni più lunghe di 80 colonne saranno spezzettate in pezzi più piccoli,
-a meno che eccedere le 80 colonne non aiuti ad aumentare la leggibilità senza
-nascondere informazioni.  I pezzi derivati sono sostanzialmente più corti degli
-originali e vengono posizionati più a destra.  Lo stesso si applica, nei file
-d'intestazione, alle funzioni con una lista di argomenti molto lunga. Tuttavia,
-non spezzettate mai le stringhe visibili agli utenti come i messaggi di
-printk, questo perché inibireste la possibilità d'utilizzare grep per cercarle.
+Espressioni più lunghe di 80 colonne dovrebbero essere spezzettate in
+pezzi più piccoli, a meno che eccedere le 80 colonne non aiuti ad
+aumentare la leggibilità senza nascondere informazioni.
+
+I nuovi pezzi derivati sono sostanzialmente più corti degli originali
+e vengono posizionati più a destra. Uno stile molto comune è quello di
+allineare i nuovi pezzi alla parentesi aperta di una funzione.
+
+Lo stesso si applica, nei file d'intestazione, alle funzioni con una
+lista di argomenti molto lunga.
+
+Tuttavia, non spezzettate mai le stringhe visibili agli utenti come i
+messaggi di printk, questo perché inibireste la possibilità
+d'utilizzare grep per cercarle.
 
 3) Posizionamento di parentesi graffe e spazi
 ---------------------------------------------
@@ -313,9 +336,8 @@ che conta gli utenti attivi, dovreste chiamarla ``count_active_users()`` o
 qualcosa di simile, **non** dovreste chiamarla ``cntusr()``.
 
 Codificare il tipo di funzione nel suo nome (quella cosa chiamata notazione
-ungherese) fa male al cervello - il compilatore conosce comunque il tipo e
-può verificarli, e inoltre confonde i programmatori.  Non c'è da
-sorprendersi che MicroSoft faccia programmi bacati.
+ungherese) è stupido - il compilatore conosce comunque il tipo e
+può verificarli, e inoltre confonde i programmatori.
 
 Le variabili LOCALI dovrebbero avere nomi corti, e significativi.  Se avete
 un qualsiasi contatore di ciclo, probabilmente sarà chiamato ``i``.
@@ -696,7 +718,7 @@ nella stringa di titolo::
 	...
 
 Per la documentazione completa sui file di configurazione, consultate
-il documento Documentation/translations/it_IT/kbuild/kconfig-language.txt
+il documento Documentation/kbuild/kconfig-language.rst
 
 
 11) Strutture dati
@@ -825,8 +847,8 @@ linguaggio assembler.
 
 Agli sviluppatori del kernel piace essere visti come dotti. Tenete un occhio
 di riguardo per l'ortografia e farete una belle figura. In inglese, evitate
-l'uso di parole mozzate come ``dont``: usate ``do not`` oppure ``don't``.
-Scrivete messaggi concisi, chiari, e inequivocabili.
+l'uso incorretto di abbreviazioni come ``dont``: usate ``do not`` oppure
+``don't``.  Scrivete messaggi concisi, chiari, e inequivocabili.
 
 I messaggi del kernel non devono terminare con un punto fermo.
 
@@ -859,7 +881,8 @@ racchiusa in #ifdef, potete usare printk(KERN_DEBUG ...).
 
 Il kernel fornisce i seguenti assegnatori ad uso generico:
 kmalloc(), kzalloc(), kmalloc_array(), kcalloc(), vmalloc(), e vzalloc().
-Per maggiori informazioni, consultate la documentazione dell'API.
+Per maggiori informazioni, consultate la documentazione dell'API:
+:ref:`Documentation/translations/it_IT/core-api/memory-allocation.rst <it_memory_allocation>`
 
 Il modo preferito per passare la dimensione di una struttura è il seguente:
 
@@ -889,6 +912,11 @@ Il modo preferito per assegnare un vettore a zero è il seguente:
 
 Entrambe verificano la condizione di overflow per la dimensione
 d'assegnamento n * sizeof(...), se accade ritorneranno NULL.
+
+Questi allocatori generici producono uno *stack dump* in caso di fallimento
+a meno che non venga esplicitamente specificato __GFP_NOWARN. Quindi, nella
+maggior parte dei casi, è inutile stampare messaggi aggiuntivi quando uno di
+questi allocatori ritornano un puntatore NULL.
 
 15) Il morbo inline
 -------------------
@@ -999,7 +1027,7 @@ struttura, usate
 
 .. code-block:: c
 
-	#define FIELD_SIZEOF(t, f) (sizeof(((t*)0)->f))
+	#define sizeof_field(t, f) (sizeof(((t*)0)->f))
 
 Ci sono anche le macro min() e max() che, se vi serve, effettuano un controllo
 rigido sui tipi.  Sentitevi liberi di leggere attentamente questo file
@@ -1091,7 +1119,7 @@ la direttiva condizionale su di esse.
 
 Se avete una variabile o funzione che potrebbe non essere usata in alcune
 configurazioni, e quindi il compilatore potrebbe avvisarvi circa la definizione
-inutilizzata, marcate questa definizione come __maybe_used piuttosto che
+inutilizzata, marcate questa definizione come __maybe_unused piuttosto che
 racchiuderla in una direttiva condizionale del preprocessore.  (Comunque,
 se una variabile o funzione è *sempre* inutilizzata, rimuovetela).
 

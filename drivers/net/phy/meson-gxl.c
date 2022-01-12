@@ -136,7 +136,7 @@ static int meson_gxl_config_init(struct phy_device *phydev)
 	if (ret)
 		return ret;
 
-	return genphy_config_init(phydev);
+	return 0;
 }
 
 /* This function is provided to cope with the possible failures of this phy
@@ -204,44 +204,76 @@ static int meson_gxl_config_intr(struct phy_device *phydev)
 	int ret;
 
 	if (phydev->interrupts == PHY_INTERRUPT_ENABLED) {
+		/* Ack any pending IRQ */
+		ret = meson_gxl_ack_interrupt(phydev);
+		if (ret)
+			return ret;
+
 		val = INTSRC_ANEG_PR
 			| INTSRC_PARALLEL_FAULT
 			| INTSRC_ANEG_LP_ACK
 			| INTSRC_LINK_DOWN
 			| INTSRC_REMOTE_FAULT
 			| INTSRC_ANEG_COMPLETE;
+		ret = phy_write(phydev, INTSRC_MASK, val);
 	} else {
 		val = 0;
+		ret = phy_write(phydev, INTSRC_MASK, val);
+
+		/* Ack any pending IRQ */
+		ret = meson_gxl_ack_interrupt(phydev);
 	}
 
-	/* Ack any pending IRQ */
-	ret = meson_gxl_ack_interrupt(phydev);
-	if (ret)
-		return ret;
+	return ret;
+}
 
-	return phy_write(phydev, INTSRC_MASK, val);
+static irqreturn_t meson_gxl_handle_interrupt(struct phy_device *phydev)
+{
+	int irq_status;
+
+	irq_status = phy_read(phydev, INTSRC_FLAG);
+	if (irq_status < 0) {
+		phy_error(phydev);
+		return IRQ_NONE;
+	}
+
+	if (irq_status == 0)
+		return IRQ_NONE;
+
+	phy_trigger_machine(phydev);
+
+	return IRQ_HANDLED;
 }
 
 static struct phy_driver meson_gxl_phy[] = {
 	{
-		.phy_id		= 0x01814400,
-		.phy_id_mask	= 0xfffffff0,
+		PHY_ID_MATCH_EXACT(0x01814400),
 		.name		= "Meson GXL Internal PHY",
-		.features	= PHY_BASIC_FEATURES,
+		/* PHY_BASIC_FEATURES */
 		.flags		= PHY_IS_INTERNAL,
 		.soft_reset     = genphy_soft_reset,
 		.config_init	= meson_gxl_config_init,
-		.aneg_done      = genphy_aneg_done,
 		.read_status	= meson_gxl_read_status,
-		.ack_interrupt	= meson_gxl_ack_interrupt,
 		.config_intr	= meson_gxl_config_intr,
+		.handle_interrupt = meson_gxl_handle_interrupt,
+		.suspend        = genphy_suspend,
+		.resume         = genphy_resume,
+	}, {
+		PHY_ID_MATCH_EXACT(0x01803301),
+		.name		= "Meson G12A Internal PHY",
+		/* PHY_BASIC_FEATURES */
+		.flags		= PHY_IS_INTERNAL,
+		.soft_reset     = genphy_soft_reset,
+		.config_intr	= meson_gxl_config_intr,
+		.handle_interrupt = meson_gxl_handle_interrupt,
 		.suspend        = genphy_suspend,
 		.resume         = genphy_resume,
 	},
 };
 
 static struct mdio_device_id __maybe_unused meson_gxl_tbl[] = {
-	{ 0x01814400, 0xfffffff0 },
+	{ PHY_ID_MATCH_VENDOR(0x01814400) },
+	{ PHY_ID_MATCH_VENDOR(0x01803301) },
 	{ }
 };
 

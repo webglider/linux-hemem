@@ -2,8 +2,10 @@
 #ifndef BOOT_COMPRESSED_DECOMPRESSOR_H
 #define BOOT_COMPRESSED_DECOMPRESSOR_H
 
+#include <linux/stddef.h>
+
 #ifdef CONFIG_KERNEL_UNCOMPRESSED
-static inline void *decompress_kernel(void) {}
+static inline void *decompress_kernel(void) { return NULL; }
 #else
 void *decompress_kernel(void);
 #endif
@@ -17,9 +19,19 @@ struct vmlinux_info {
 	unsigned long bss_size;		/* uncompressed image .bss size */
 	unsigned long bootdata_off;
 	unsigned long bootdata_size;
+	unsigned long bootdata_preserved_off;
+	unsigned long bootdata_preserved_size;
+	unsigned long dynsym_start;
+	unsigned long rela_dyn_start;
+	unsigned long rela_dyn_end;
 };
 
+/* Symbols defined by linker scripts */
+extern char _end[];
+extern unsigned char _compressed_start[];
+extern unsigned char _compressed_end[];
 extern char _vmlinux_info[];
+
 #define vmlinux (*(struct vmlinux_info *)_vmlinux_info)
 
 #endif /* BOOT_COMPRESSED_DECOMPRESSOR_H */

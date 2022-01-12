@@ -1,9 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2006 Netfilter Core Team <coreteam@netfilter.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/types.h>
@@ -71,15 +68,13 @@ static bool udp_manip_pkt(struct sk_buff *skb,
 			  enum nf_nat_manip_type maniptype)
 {
 	struct udphdr *hdr;
-	bool do_csum;
 
-	if (!skb_make_writable(skb, hdroff + sizeof(*hdr)))
+	if (skb_ensure_writable(skb, hdroff + sizeof(*hdr)))
 		return false;
 
 	hdr = (struct udphdr *)(skb->data + hdroff);
-	do_csum = hdr->check || skb->ip_summed == CHECKSUM_PARTIAL;
+	__udp_manip_pkt(skb, iphdroff, hdr, tuple, maniptype, !!hdr->check);
 
-	__udp_manip_pkt(skb, iphdroff, hdr, tuple, maniptype, do_csum);
 	return true;
 }
 
@@ -91,7 +86,7 @@ static bool udplite_manip_pkt(struct sk_buff *skb,
 #ifdef CONFIG_NF_CT_PROTO_UDPLITE
 	struct udphdr *hdr;
 
-	if (!skb_make_writable(skb, hdroff + sizeof(*hdr)))
+	if (skb_ensure_writable(skb, hdroff + sizeof(*hdr)))
 		return false;
 
 	hdr = (struct udphdr *)(skb->data + hdroff);
@@ -117,7 +112,7 @@ sctp_manip_pkt(struct sk_buff *skb,
 	if (skb->len >= hdroff + sizeof(*hdr))
 		hdrsize = sizeof(*hdr);
 
-	if (!skb_make_writable(skb, hdroff + hdrsize))
+	if (skb_ensure_writable(skb, hdroff + hdrsize))
 		return false;
 
 	hdr = (struct sctphdr *)(skb->data + hdroff);
@@ -158,7 +153,7 @@ tcp_manip_pkt(struct sk_buff *skb,
 	if (skb->len >= hdroff + sizeof(struct tcphdr))
 		hdrsize = sizeof(struct tcphdr);
 
-	if (!skb_make_writable(skb, hdroff + hdrsize))
+	if (skb_ensure_writable(skb, hdroff + hdrsize))
 		return false;
 
 	hdr = (struct tcphdr *)(skb->data + hdroff);
@@ -198,7 +193,7 @@ dccp_manip_pkt(struct sk_buff *skb,
 	if (skb->len >= hdroff + sizeof(struct dccp_hdr))
 		hdrsize = sizeof(struct dccp_hdr);
 
-	if (!skb_make_writable(skb, hdroff + hdrsize))
+	if (skb_ensure_writable(skb, hdroff + hdrsize))
 		return false;
 
 	hdr = (struct dccp_hdr *)(skb->data + hdroff);
@@ -232,10 +227,23 @@ icmp_manip_pkt(struct sk_buff *skb,
 {
 	struct icmphdr *hdr;
 
-	if (!skb_make_writable(skb, hdroff + sizeof(*hdr)))
+	if (skb_ensure_writable(skb, hdroff + sizeof(*hdr)))
 		return false;
 
 	hdr = (struct icmphdr *)(skb->data + hdroff);
+	switch (hdr->type) {
+	case ICMP_ECHO:
+	case ICMP_ECHOREPLY:
+	case ICMP_TIMESTAMP:
+	case ICMP_TIMESTAMPREPLY:
+	case ICMP_INFO_REQUEST:
+	case ICMP_INFO_REPLY:
+	case ICMP_ADDRESS:
+	case ICMP_ADDRESSREPLY:
+		break;
+	default:
+		return true;
+	}
 	inet_proto_csum_replace2(&hdr->checksum, skb,
 				 hdr->un.echo.id, tuple->src.u.icmp.id, false);
 	hdr->un.echo.id = tuple->src.u.icmp.id;
@@ -250,7 +258,7 @@ icmpv6_manip_pkt(struct sk_buff *skb,
 {
 	struct icmp6hdr *hdr;
 
-	if (!skb_make_writable(skb, hdroff + sizeof(*hdr)))
+	if (skb_ensure_writable(skb, hdroff + sizeof(*hdr)))
 		return false;
 
 	hdr = (struct icmp6hdr *)(skb->data + hdroff);
@@ -278,7 +286,7 @@ gre_manip_pkt(struct sk_buff *skb,
 
 	/* pgreh includes two optional 32bit fields which are not required
 	 * to be there.  That's where the magic '8' comes from */
-	if (!skb_make_writable(skb, hdroff + sizeof(*pgreh) - 8))
+	if (skb_ensure_writable(skb, hdroff + sizeof(*pgreh) - 8))
 		return false;
 
 	greh = (void *)skb->data + hdroff;
@@ -350,7 +358,7 @@ static bool nf_nat_ipv4_manip_pkt(struct sk_buff *skb,
 	struct iphdr *iph;
 	unsigned int hdroff;
 
-	if (!skb_make_writable(skb, iphdroff + sizeof(*iph)))
+	if (skb_ensure_writable(skb, iphdroff + sizeof(*iph)))
 		return false;
 
 	iph = (void *)skb->data + iphdroff;
@@ -381,7 +389,7 @@ static bool nf_nat_ipv6_manip_pkt(struct sk_buff *skb,
 	int hdroff;
 	u8 nexthdr;
 
-	if (!skb_make_writable(skb, iphdroff + sizeof(*ipv6h)))
+	if (skb_ensure_writable(skb, iphdroff + sizeof(*ipv6h)))
 		return false;
 
 	ipv6h = (void *)skb->data + iphdroff;
@@ -565,9 +573,9 @@ int nf_nat_icmp_reply_translation(struct sk_buff *skb,
 
 	WARN_ON(ctinfo != IP_CT_RELATED && ctinfo != IP_CT_RELATED_REPLY);
 
-	if (!skb_make_writable(skb, hdrlen + sizeof(*inside)))
+	if (skb_ensure_writable(skb, hdrlen + sizeof(*inside)))
 		return 0;
-	if (nf_ip_checksum(skb, hooknum, hdrlen, 0))
+	if (nf_ip_checksum(skb, hooknum, hdrlen, IPPROTO_ICMP))
 		return 0;
 
 	inside = (void *)skb->data + hdrlen;
@@ -638,8 +646,8 @@ nf_nat_ipv4_fn(void *priv, struct sk_buff *skb,
 }
 
 static unsigned int
-nf_nat_ipv4_in(void *priv, struct sk_buff *skb,
-	       const struct nf_hook_state *state)
+nf_nat_ipv4_pre_routing(void *priv, struct sk_buff *skb,
+			const struct nf_hook_state *state)
 {
 	unsigned int ret;
 	__be32 daddr = ip_hdr(skb)->daddr;
@@ -647,6 +655,61 @@ nf_nat_ipv4_in(void *priv, struct sk_buff *skb,
 	ret = nf_nat_ipv4_fn(priv, skb, state);
 	if (ret == NF_ACCEPT && daddr != ip_hdr(skb)->daddr)
 		skb_dst_drop(skb);
+
+	return ret;
+}
+
+#ifdef CONFIG_XFRM
+static int nf_xfrm_me_harder(struct net *net, struct sk_buff *skb, unsigned int family)
+{
+	struct sock *sk = skb->sk;
+	struct dst_entry *dst;
+	unsigned int hh_len;
+	struct flowi fl;
+	int err;
+
+	err = xfrm_decode_session(skb, &fl, family);
+	if (err < 0)
+		return err;
+
+	dst = skb_dst(skb);
+	if (dst->xfrm)
+		dst = ((struct xfrm_dst *)dst)->route;
+	if (!dst_hold_safe(dst))
+		return -EHOSTUNREACH;
+
+	if (sk && !net_eq(net, sock_net(sk)))
+		sk = NULL;
+
+	dst = xfrm_lookup(net, dst, &fl, sk, 0);
+	if (IS_ERR(dst))
+		return PTR_ERR(dst);
+
+	skb_dst_drop(skb);
+	skb_dst_set(skb, dst);
+
+	/* Change in oif may mean change in hh_len. */
+	hh_len = skb_dst(skb)->dev->hard_header_len;
+	if (skb_headroom(skb) < hh_len &&
+	    pskb_expand_head(skb, hh_len - skb_headroom(skb), 0, GFP_ATOMIC))
+		return -ENOMEM;
+	return 0;
+}
+#endif
+
+static unsigned int
+nf_nat_ipv4_local_in(void *priv, struct sk_buff *skb,
+		     const struct nf_hook_state *state)
+{
+	__be32 saddr = ip_hdr(skb)->saddr;
+	struct sock *sk = skb->sk;
+	unsigned int ret;
+
+	ret = nf_nat_ipv4_fn(priv, skb, state);
+
+	if (ret == NF_ACCEPT && sk && saddr != ip_hdr(skb)->saddr &&
+	    !inet_sk_transparent(sk))
+		skb_orphan(skb); /* TCP edemux obtained wrong socket */
 
 	return ret;
 }
@@ -707,7 +770,7 @@ nf_nat_ipv4_local_fn(void *priv, struct sk_buff *skb,
 
 		if (ct->tuplehash[dir].tuple.dst.u3.ip !=
 		    ct->tuplehash[!dir].tuple.src.u3.ip) {
-			err = ip_route_me_harder(state->net, skb, RTN_UNSPEC);
+			err = ip_route_me_harder(state->net, state->sk, skb, RTN_UNSPEC);
 			if (err < 0)
 				ret = NF_DROP_ERR(err);
 		}
@@ -728,7 +791,7 @@ nf_nat_ipv4_local_fn(void *priv, struct sk_buff *skb,
 static const struct nf_hook_ops nf_nat_ipv4_ops[] = {
 	/* Before packet filtering, change destination */
 	{
-		.hook		= nf_nat_ipv4_in,
+		.hook		= nf_nat_ipv4_pre_routing,
 		.pf		= NFPROTO_IPV4,
 		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP_PRI_NAT_DST,
@@ -749,7 +812,7 @@ static const struct nf_hook_ops nf_nat_ipv4_ops[] = {
 	},
 	/* After packet filtering, change source */
 	{
-		.hook		= nf_nat_ipv4_fn,
+		.hook		= nf_nat_ipv4_local_in,
 		.pf		= NFPROTO_IPV4,
 		.hooknum	= NF_INET_LOCAL_IN,
 		.priority	= NF_IP_PRI_NAT_SRC,
@@ -758,13 +821,14 @@ static const struct nf_hook_ops nf_nat_ipv4_ops[] = {
 
 int nf_nat_ipv4_register_fn(struct net *net, const struct nf_hook_ops *ops)
 {
-	return nf_nat_register_fn(net, ops, nf_nat_ipv4_ops, ARRAY_SIZE(nf_nat_ipv4_ops));
+	return nf_nat_register_fn(net, ops->pf, ops, nf_nat_ipv4_ops,
+				  ARRAY_SIZE(nf_nat_ipv4_ops));
 }
 EXPORT_SYMBOL_GPL(nf_nat_ipv4_register_fn);
 
 void nf_nat_ipv4_unregister_fn(struct net *net, const struct nf_hook_ops *ops)
 {
-	nf_nat_unregister_fn(net, ops, ARRAY_SIZE(nf_nat_ipv4_ops));
+	nf_nat_unregister_fn(net, ops->pf, ops, ARRAY_SIZE(nf_nat_ipv4_ops));
 }
 EXPORT_SYMBOL_GPL(nf_nat_ipv4_unregister_fn);
 
@@ -786,7 +850,7 @@ int nf_nat_icmpv6_reply_translation(struct sk_buff *skb,
 
 	WARN_ON(ctinfo != IP_CT_RELATED && ctinfo != IP_CT_RELATED_REPLY);
 
-	if (!skb_make_writable(skb, hdrlen + sizeof(*inside)))
+	if (skb_ensure_writable(skb, hdrlen + sizeof(*inside)))
 		return 0;
 	if (nf_ip6_checksum(skb, hooknum, hdrlen, IPPROTO_ICMPV6))
 		return 0;
@@ -925,20 +989,6 @@ nf_nat_ipv6_out(void *priv, struct sk_buff *skb,
 	return ret;
 }
 
-static int nat_route_me_harder(struct net *net, struct sk_buff *skb)
-{
-#ifdef CONFIG_IPV6_MODULE
-	const struct nf_ipv6_ops *v6_ops = nf_get_ipv6_ops();
-
-	if (!v6_ops)
-		return -EHOSTUNREACH;
-
-	return v6_ops->route_me_harder(net, skb);
-#else
-	return ip6_route_me_harder(net, skb);
-#endif
-}
-
 static unsigned int
 nf_nat_ipv6_local_fn(void *priv, struct sk_buff *skb,
 		     const struct nf_hook_state *state)
@@ -958,7 +1008,7 @@ nf_nat_ipv6_local_fn(void *priv, struct sk_buff *skb,
 
 		if (!nf_inet_addr_cmp(&ct->tuplehash[dir].tuple.dst.u3,
 				      &ct->tuplehash[!dir].tuple.src.u3)) {
-			err = nat_route_me_harder(state->net, skb);
+			err = nf_ip6_route_me_harder(state->net, state->sk, skb);
 			if (err < 0)
 				ret = NF_DROP_ERR(err);
 		}
@@ -1010,14 +1060,44 @@ static const struct nf_hook_ops nf_nat_ipv6_ops[] = {
 
 int nf_nat_ipv6_register_fn(struct net *net, const struct nf_hook_ops *ops)
 {
-	return nf_nat_register_fn(net, ops, nf_nat_ipv6_ops,
+	return nf_nat_register_fn(net, ops->pf, ops, nf_nat_ipv6_ops,
 				  ARRAY_SIZE(nf_nat_ipv6_ops));
 }
 EXPORT_SYMBOL_GPL(nf_nat_ipv6_register_fn);
 
 void nf_nat_ipv6_unregister_fn(struct net *net, const struct nf_hook_ops *ops)
 {
-	nf_nat_unregister_fn(net, ops, ARRAY_SIZE(nf_nat_ipv6_ops));
+	nf_nat_unregister_fn(net, ops->pf, ops, ARRAY_SIZE(nf_nat_ipv6_ops));
 }
 EXPORT_SYMBOL_GPL(nf_nat_ipv6_unregister_fn);
 #endif /* CONFIG_IPV6 */
+
+#if defined(CONFIG_NF_TABLES_INET) && IS_ENABLED(CONFIG_NFT_NAT)
+int nf_nat_inet_register_fn(struct net *net, const struct nf_hook_ops *ops)
+{
+	int ret;
+
+	if (WARN_ON_ONCE(ops->pf != NFPROTO_INET))
+		return -EINVAL;
+
+	ret = nf_nat_register_fn(net, NFPROTO_IPV6, ops, nf_nat_ipv6_ops,
+				 ARRAY_SIZE(nf_nat_ipv6_ops));
+	if (ret)
+		return ret;
+
+	ret = nf_nat_register_fn(net, NFPROTO_IPV4, ops, nf_nat_ipv4_ops,
+				 ARRAY_SIZE(nf_nat_ipv4_ops));
+	if (ret)
+		nf_nat_unregister_fn(net, NFPROTO_IPV6, ops,
+					ARRAY_SIZE(nf_nat_ipv6_ops));
+	return ret;
+}
+EXPORT_SYMBOL_GPL(nf_nat_inet_register_fn);
+
+void nf_nat_inet_unregister_fn(struct net *net, const struct nf_hook_ops *ops)
+{
+	nf_nat_unregister_fn(net, NFPROTO_IPV4, ops, ARRAY_SIZE(nf_nat_ipv4_ops));
+	nf_nat_unregister_fn(net, NFPROTO_IPV6, ops, ARRAY_SIZE(nf_nat_ipv6_ops));
+}
+EXPORT_SYMBOL_GPL(nf_nat_inet_unregister_fn);
+#endif /* NFT INET NAT */

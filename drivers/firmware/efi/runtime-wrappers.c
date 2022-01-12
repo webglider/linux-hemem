@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * runtime-wrappers.c - Runtime Services function call wrappers
  *
@@ -19,8 +20,6 @@
  * Copyright (C) 1999-2002 Hewlett-Packard Co.
  * Copyright (C) 2005-2008 Intel Co.
  * Copyright (C) 2013 SuSE Labs
- *
- * This file is released under the GPLv2.
  */
 
 #define pr_fmt(fmt)	"efi: " fmt
@@ -41,9 +40,9 @@
  * code doesn't get too cluttered:
  */
 #define efi_call_virt(f, args...)   \
-	efi_call_virt_pointer(efi.systab->runtime, f, args)
+	efi_call_virt_pointer(efi.runtime, f, args)
 #define __efi_call_virt(f, args...) \
-	__efi_call_virt_pointer(efi.systab->runtime, f, args)
+	__efi_call_virt_pointer(efi.runtime, f, args)
 
 struct efi_runtime_work efi_rts_work;
 
@@ -415,7 +414,7 @@ static void virt_efi_reset_system(int reset_type,
 				  unsigned long data_size,
 				  efi_char16_t *data)
 {
-	if (down_interruptible(&efi_runtime_lock)) {
+	if (down_trylock(&efi_runtime_lock)) {
 		pr_warn("failed to invoke the reset_system() runtime service:\n"
 			"could not get exclusive access to the firmware\n");
 		return;

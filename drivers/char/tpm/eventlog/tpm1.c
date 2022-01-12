@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2005, 2012 IBM Corporation
  *
@@ -12,12 +13,6 @@
  * Maintained by: <tpmdd-devel@lists.sourceforge.net>
  *
  * Access to the event log created by a system's firmware / BIOS
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
- *
  */
 
 #include <linux/seq_file.h>
@@ -120,6 +115,7 @@ static void *tpm1_bios_measurements_next(struct seq_file *m, void *v,
 	u32 converted_event_size;
 	u32 converted_event_type;
 
+	(*pos)++;
 	converted_event_size = do_endian_conversion(event->event_size);
 
 	v += sizeof(struct tcpa_event) + converted_event_size;
@@ -137,7 +133,6 @@ static void *tpm1_bios_measurements_next(struct seq_file *m, void *v,
 	    ((v + sizeof(struct tcpa_event) + converted_event_size) > limit))
 		return NULL;
 
-	(*pos)++;
 	return v;
 }
 
@@ -215,6 +210,7 @@ static int get_event_name(char *dest, struct tcpa_event *event,
 		default:
 			break;
 		}
+		break;
 	default:
 		break;
 	}

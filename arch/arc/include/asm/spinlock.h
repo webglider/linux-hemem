@@ -1,9 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2004, 2007-2010, 2011-2012 Synopsys, Inc. (www.synopsys.com)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #ifndef __ASM_SPINLOCK_H
@@ -235,15 +232,9 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 
 	__asm__ __volatile__(
 	"1:	ex  %0, [%1]		\n"
-#ifdef CONFIG_EZNPS_MTM_EXT
-	"	.word %3		\n"
-#endif
 	"	breq  %0, %2, 1b	\n"
 	: "+&r" (val)
 	: "r"(&(lock->slock)), "ir"(__ARCH_SPIN_LOCK_LOCKED__)
-#ifdef CONFIG_EZNPS_MTM_EXT
-	, "i"(CTOP_INST_SCHD_RW)
-#endif
 	: "memory");
 
 	smp_mb();

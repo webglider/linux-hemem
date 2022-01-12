@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * An I2C driver for Ricoh RS5C372, R2025S/D and RV5C38[67] RTCs
  *
  * Copyright (C) 2005 Pavel Mironchik <pmironchik@optifacio.net>
  * Copyright (C) 2006 Tower Technologies
  * Copyright (C) 2008 Paul Mundt
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/i2c.h>
@@ -86,7 +83,7 @@ static const struct i2c_device_id rs5c372_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, rs5c372_id);
 
-static const struct of_device_id rs5c372_of_match[] = {
+static const __maybe_unused struct of_device_id rs5c372_of_match[] = {
 	{
 		.compatible = "ricoh,r2025sd",
 		.data = (void *)rtc_r2025sd

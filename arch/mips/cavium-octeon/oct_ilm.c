@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/fs.h>
 #include <linux/interrupt.h>
 #include <asm/octeon/octeon.h>
@@ -61,7 +62,7 @@ static int reset_statistics(void *data, u64 value)
 	return 0;
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(reset_statistics_ops, NULL, reset_statistics, "%llu\n");
+DEFINE_DEBUGFS_ATTRIBUTE(reset_statistics_ops, NULL, reset_statistics, "%llu\n");
 
 static void init_debugfs(void)
 {

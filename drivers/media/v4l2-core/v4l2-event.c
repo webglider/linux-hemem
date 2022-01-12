@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * v4l2-event.c
  *
@@ -6,15 +7,6 @@
  * Copyright (C) 2009--2010 Nokia Corporation.
  *
  * Contact: Sakari Ailus <sakari.ailus@iki.fi>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
  */
 
 #include <media/v4l2-dev.h>
@@ -26,7 +18,7 @@
 #include <linux/slab.h>
 #include <linux/export.h>
 
-static unsigned sev_pos(const struct v4l2_subscribed_event *sev, unsigned idx)
+static unsigned int sev_pos(const struct v4l2_subscribed_event *sev, unsigned int idx)
 {
 	idx += sev->first;
 	return idx >= sev->elems ? idx - sev->elems : idx;
@@ -35,6 +27,7 @@ static unsigned sev_pos(const struct v4l2_subscribed_event *sev, unsigned idx)
 static int __v4l2_event_dequeue(struct v4l2_fh *fh, struct v4l2_event *event)
 {
 	struct v4l2_kevent *kev;
+	struct timespec64 ts;
 	unsigned long flags;
 
 	spin_lock_irqsave(&fh->vdev->fh_lock, flags);
@@ -52,7 +45,9 @@ static int __v4l2_event_dequeue(struct v4l2_fh *fh, struct v4l2_event *event)
 
 	kev->event.pending = fh->navailable;
 	*event = kev->event;
-	event->timestamp = ns_to_timespec(kev->ts);
+	ts = ns_to_timespec64(kev->ts);
+	event->timestamp.tv_sec = ts.tv_sec;
+	event->timestamp.tv_nsec = ts.tv_nsec;
 	kev->sev->first = sev_pos(kev->sev, 1);
 	kev->sev->in_use--;
 
@@ -192,6 +187,23 @@ int v4l2_event_pending(struct v4l2_fh *fh)
 }
 EXPORT_SYMBOL_GPL(v4l2_event_pending);
 
+void v4l2_event_wake_all(struct video_device *vdev)
+{
+	struct v4l2_fh *fh;
+	unsigned long flags;
+
+	if (!vdev)
+		return;
+
+	spin_lock_irqsave(&vdev->fh_lock, flags);
+
+	list_for_each_entry(fh, &vdev->fh_list, list)
+		wake_up_all(&fh->wait);
+
+	spin_unlock_irqrestore(&vdev->fh_lock, flags);
+}
+EXPORT_SYMBOL_GPL(v4l2_event_wake_all);
+
 static void __v4l2_event_unsubscribe(struct v4l2_subscribed_event *sev)
 {
 	struct v4l2_fh *fh = sev->fh;
@@ -209,12 +221,12 @@ static void __v4l2_event_unsubscribe(struct v4l2_subscribed_event *sev)
 }
 
 int v4l2_event_subscribe(struct v4l2_fh *fh,
-			 const struct v4l2_event_subscription *sub, unsigned elems,
+			 const struct v4l2_event_subscription *sub, unsigned int elems,
 			 const struct v4l2_subscribed_event_ops *ops)
 {
 	struct v4l2_subscribed_event *sev, *found_ev;
 	unsigned long flags;
-	unsigned i;
+	unsigned int i;
 	int ret = 0;
 
 	if (sub->type == V4L2_EVENT_ALL)

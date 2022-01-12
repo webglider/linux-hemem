@@ -1,26 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Serial Attached SCSI (SAS) class SCSI Host glue.
  *
  * Copyright (C) 2005 Adaptec, Inc.  All rights reserved.
  * Copyright (C) 2005 Luben Tuikov <luben_tuikov@adaptec.com>
- *
- * This file is licensed under GPLv2.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of the
- * License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
- * USA
- *
  */
 
 #include <linux/kthread.h>
@@ -39,9 +22,9 @@
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_transport_sas.h>
 #include <scsi/sas_ata.h>
-#include "../scsi_sas_internal.h"
-#include "../scsi_transport_api.h"
-#include "../scsi_priv.h"
+#include "scsi_sas_internal.h"
+#include "scsi_transport_api.h"
+#include "scsi_priv.h"
 
 #include <linux/err.h>
 #include <linux/blkdev.h>
@@ -347,7 +330,7 @@ static int sas_recover_lu(struct domain_device *dev, struct scsi_cmnd *cmd)
 
 	int_to_scsilun(cmd->device->lun, &lun);
 
-	pr_notice("eh: device %llx LUN %llx has the task\n",
+	pr_notice("eh: device %016llx LUN 0x%llx has the task\n",
 		  SAS_ADDR(dev->sas_addr),
 		  cmd->device->lun);
 
@@ -431,7 +414,6 @@ static void sas_wait_eh(struct domain_device *dev)
 		goto retry;
 	}
 }
-EXPORT_SYMBOL(sas_wait_eh);
 
 static int sas_queue_reset(struct domain_device *dev, int reset_type,
 			   u64 lun, int wait)
@@ -633,14 +615,14 @@ static void sas_eh_handle_sas_errors(struct Scsi_Host *shost, struct list_head *
  reset:
 			tmf_resp = sas_recover_lu(task->dev, cmd);
 			if (tmf_resp == TMF_RESP_FUNC_COMPLETE) {
-				pr_notice("dev %016llx LU %llx is recovered\n",
+				pr_notice("dev %016llx LU 0x%llx is recovered\n",
 					  SAS_ADDR(task->dev),
 					  cmd->device->lun);
 				sas_eh_finish_cmd(cmd);
 				sas_scsi_clear_queue_lu(work_q, cmd);
 				goto Again;
 			}
-			/* fallthrough */
+			fallthrough;
 		case TASK_IS_NOT_AT_LU:
 		case TASK_ABORT_FAILED:
 			pr_notice("task 0x%p is not at LU: I_T recover\n",
@@ -684,7 +666,7 @@ static void sas_eh_handle_sas_errors(struct Scsi_Host *shost, struct list_head *
 			 * of effort could recover from errors.  Quite
 			 * possibly the HA just disappeared.
 			 */
-			pr_err("error from  device %llx, LUN %llx couldn't be recovered in any way\n",
+			pr_err("error from device %016llx, LUN 0x%llx couldn't be recovered in any way\n",
 			       SAS_ADDR(task->dev->sas_addr),
 			       cmd->device->lun);
 
@@ -869,7 +851,7 @@ int sas_slave_configure(struct scsi_device *scsi_dev)
 	if (scsi_dev->tagged_supported) {
 		scsi_change_queue_depth(scsi_dev, SAS_DEF_QD);
 	} else {
-		pr_notice("device %llx, LUN %llx doesn't support TCQ\n",
+		pr_notice("device %016llx, LUN 0x%llx doesn't support TCQ\n",
 			  SAS_ADDR(dev->sas_addr), scsi_dev->lun);
 		scsi_change_queue_depth(scsi_dev, 1);
 	}
@@ -926,7 +908,15 @@ void sas_task_abort(struct sas_task *task)
 	if (dev_is_sata(task->dev))
 		sas_ata_task_abort(task);
 	else
-		blk_abort_request(sc->request);
+		blk_abort_request(scsi_cmd_to_rq(sc));
+}
+
+int sas_slave_alloc(struct scsi_device *sdev)
+{
+	if (dev_is_sata(sdev_to_domain_dev(sdev)) && sdev->lun)
+		return -ENXIO;
+
+	return 0;
 }
 
 void sas_target_destroy(struct scsi_target *starget)
@@ -975,5 +965,6 @@ EXPORT_SYMBOL_GPL(sas_task_abort);
 EXPORT_SYMBOL_GPL(sas_phy_reset);
 EXPORT_SYMBOL_GPL(sas_eh_device_reset_handler);
 EXPORT_SYMBOL_GPL(sas_eh_target_reset_handler);
+EXPORT_SYMBOL_GPL(sas_slave_alloc);
 EXPORT_SYMBOL_GPL(sas_target_destroy);
 EXPORT_SYMBOL_GPL(sas_ioctl);

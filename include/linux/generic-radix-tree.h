@@ -2,7 +2,7 @@
 #define _LINUX_GENERIC_RADIX_TREE_H
 
 /**
- * DOC: Generic radix trees/sparse arrays:
+ * DOC: Generic radix trees/sparse arrays
  *
  * Very simple and minimalistic, supporting arbitrary size entries up to
  * PAGE_SIZE.
@@ -44,7 +44,7 @@
 struct genradix_root;
 
 struct __genradix {
-	struct genradix_root __rcu	*root;
+	struct genradix_root		*root;
 };
 
 /*

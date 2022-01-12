@@ -190,12 +190,8 @@ static int mlx90640_setup(struct video_i2c_data *data)
 	unsigned int n, idx;
 
 	for (n = 0; n < data->chip->num_frame_intervals - 1; n++) {
-		if (data->frame_interval.numerator
-				!= data->chip->frame_intervals[n].numerator)
-			continue;
-
-		if (data->frame_interval.denominator
-				== data->chip->frame_intervals[n].denominator)
+		if (V4L2_FRACT_COMPARE(data->frame_interval, ==,
+				       data->chip->frame_intervals[n]))
 			break;
 	}
 
@@ -259,7 +255,7 @@ static int amg88xx_set_power(struct video_i2c_data *data, bool on)
 	return amg88xx_set_power_off(data);
 }
 
-#if IS_ENABLED(CONFIG_HWMON)
+#if IS_REACHABLE(CONFIG_HWMON)
 
 static const u32 amg88xx_temp_config[] = {
 	HWMON_T_INPUT,
@@ -290,11 +286,9 @@ static int amg88xx_read(struct device *dev, enum hwmon_sensor_types type,
 	__le16 buf;
 	int tmp;
 
-	tmp = pm_runtime_get_sync(regmap_get_device(data->regmap));
-	if (tmp < 0) {
-		pm_runtime_put_noidle(regmap_get_device(data->regmap));
+	tmp = pm_runtime_resume_and_get(regmap_get_device(data->regmap));
+	if (tmp < 0)
 		return tmp;
-	}
 
 	tmp = regmap_bulk_read(data->regmap, AMG88XX_REG_TTHL, &buf, 2);
 	pm_runtime_mark_last_busy(regmap_get_device(data->regmap));
@@ -516,11 +510,9 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 	if (data->kthread_vid_cap)
 		return 0;
 
-	ret = pm_runtime_get_sync(dev);
-	if (ret < 0) {
-		pm_runtime_put_noidle(dev);
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
 		goto error_del_list;
-	}
 
 	ret = data->chip->setup(data);
 	if (ret)
@@ -862,7 +854,7 @@ static int video_i2c_probe(struct i2c_client *client,
 		}
 	}
 
-	ret = video_register_device(&data->vdev, VFL_TYPE_GRABBER, -1);
+	ret = video_register_device(&data->vdev, VFL_TYPE_VIDEO, -1);
 	if (ret < 0)
 		goto error_pm_disable;
 

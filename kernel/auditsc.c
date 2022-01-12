@@ -75,6 +75,7 @@
 #include <linux/uaccess.h>
 #include <linux/fsnotify_backend.h>
 #include <uapi/linux/limits.h>
+#include <uapi/linux/netfilter/nf_tables.h>
 
 #include "audit.h"
 
@@ -100,8 +101,6 @@ struct audit_aux_data {
 	struct audit_aux_data	*next;
 	int			type;
 };
-
-#define AUDIT_AUX_IPCPERM	0
 
 /* Number of target pids per aux struct. */
 #define AUDIT_AUX_PIDS	16
@@ -130,9 +129,38 @@ struct audit_tree_refs {
 	struct audit_chunk *c[31];
 };
 
+struct audit_nfcfgop_tab {
+	enum audit_nfcfgop	op;
+	const char		*s;
+};
+
+static const struct audit_nfcfgop_tab audit_nfcfgs[] = {
+	{ AUDIT_XT_OP_REGISTER,			"xt_register"		   },
+	{ AUDIT_XT_OP_REPLACE,			"xt_replace"		   },
+	{ AUDIT_XT_OP_UNREGISTER,		"xt_unregister"		   },
+	{ AUDIT_NFT_OP_TABLE_REGISTER,		"nft_register_table"	   },
+	{ AUDIT_NFT_OP_TABLE_UNREGISTER,	"nft_unregister_table"	   },
+	{ AUDIT_NFT_OP_CHAIN_REGISTER,		"nft_register_chain"	   },
+	{ AUDIT_NFT_OP_CHAIN_UNREGISTER,	"nft_unregister_chain"	   },
+	{ AUDIT_NFT_OP_RULE_REGISTER,		"nft_register_rule"	   },
+	{ AUDIT_NFT_OP_RULE_UNREGISTER,		"nft_unregister_rule"	   },
+	{ AUDIT_NFT_OP_SET_REGISTER,		"nft_register_set"	   },
+	{ AUDIT_NFT_OP_SET_UNREGISTER,		"nft_unregister_set"	   },
+	{ AUDIT_NFT_OP_SETELEM_REGISTER,	"nft_register_setelem"	   },
+	{ AUDIT_NFT_OP_SETELEM_UNREGISTER,	"nft_unregister_setelem"   },
+	{ AUDIT_NFT_OP_GEN_REGISTER,		"nft_register_gen"	   },
+	{ AUDIT_NFT_OP_OBJ_REGISTER,		"nft_register_obj"	   },
+	{ AUDIT_NFT_OP_OBJ_UNREGISTER,		"nft_unregister_obj"	   },
+	{ AUDIT_NFT_OP_OBJ_RESET,		"nft_reset_obj"		   },
+	{ AUDIT_NFT_OP_FLOWTABLE_REGISTER,	"nft_register_flowtable"   },
+	{ AUDIT_NFT_OP_FLOWTABLE_UNREGISTER,	"nft_unregister_flowtable" },
+	{ AUDIT_NFT_OP_INVALID,			"nft_invalid"		   },
+};
+
 static int audit_match_perm(struct audit_context *ctx, int mask)
 {
 	unsigned n;
+
 	if (unlikely(!ctx))
 		return 0;
 	n = ctx->major;
@@ -204,7 +232,7 @@ static void audit_set_auditable(struct audit_context *ctx)
 {
 	if (!ctx->prio) {
 		ctx->prio = 1;
-		ctx->current_state = AUDIT_RECORD_CONTEXT;
+		ctx->current_state = AUDIT_STATE_RECORD;
 	}
 }
 
@@ -212,6 +240,7 @@ static int put_tree_ref(struct audit_context *ctx, struct audit_chunk *chunk)
 {
 	struct audit_tree_refs *p = ctx->trees;
 	int left = ctx->tree_count;
+
 	if (likely(left)) {
 		p->c[--left] = chunk;
 		ctx->tree_count = left;
@@ -232,6 +261,7 @@ static int put_tree_ref(struct audit_context *ctx, struct audit_chunk *chunk)
 static int grow_tree_refs(struct audit_context *ctx)
 {
 	struct audit_tree_refs *p = ctx->trees;
+
 	ctx->trees = kzalloc(sizeof(struct audit_tree_refs), GFP_KERNEL);
 	if (!ctx->trees) {
 		ctx->trees = p;
@@ -250,6 +280,7 @@ static void unroll_tree_refs(struct audit_context *ctx,
 {
 	struct audit_tree_refs *q;
 	int n;
+
 	if (!p) {
 		/* we started with empty chain */
 		p = ctx->first_trees;
@@ -276,6 +307,7 @@ static void unroll_tree_refs(struct audit_context *ctx,
 static void free_tree_refs(struct audit_context *ctx)
 {
 	struct audit_tree_refs *p, *q;
+
 	for (p = ctx->first_trees; p; p = q) {
 		q = p->next;
 		kfree(p);
@@ -286,6 +318,7 @@ static int match_tree_refs(struct audit_context *ctx, struct audit_tree *tree)
 {
 	struct audit_tree_refs *p;
 	int n;
+
 	if (!tree)
 		return 0;
 	/* full ones */
@@ -310,13 +343,13 @@ static int audit_compare_uid(kuid_t uid,
 {
 	struct audit_names *n;
 	int rc;
- 
+
 	if (name) {
 		rc = audit_uid_comparator(uid, f->op, name->uid);
 		if (rc)
 			return rc;
 	}
- 
+
 	if (ctx) {
 		list_for_each_entry(n, &ctx->names_list, list) {
 			rc = audit_uid_comparator(uid, f->op, n->uid);
@@ -334,13 +367,13 @@ static int audit_compare_gid(kgid_t gid,
 {
 	struct audit_names *n;
 	int rc;
- 
+
 	if (name) {
 		rc = audit_gid_comparator(gid, f->op, name->gid);
 		if (rc)
 			return rc;
 	}
- 
+
 	if (ctx) {
 		list_for_each_entry(n, &ctx->names_list, list) {
 			rc = audit_gid_comparator(gid, f->op, n->gid);
@@ -523,11 +556,11 @@ static int audit_filter_rules(struct task_struct *tsk,
 			break;
 
 		case AUDIT_EXIT:
-			if (ctx && ctx->return_valid)
+			if (ctx && ctx->return_valid != AUDITSC_INVALID)
 				result = audit_comparator(ctx->return_code, f->op, f->val);
 			break;
 		case AUDIT_SUCCESS:
-			if (ctx && ctx->return_valid) {
+			if (ctx && ctx->return_valid != AUDITSC_INVALID) {
 				if (f->val)
 					result = audit_comparator(ctx->return_valid, f->op, AUDITSC_SUCCESS);
 				else
@@ -601,12 +634,20 @@ static int audit_filter_rules(struct task_struct *tsk,
 			}
 			break;
 		case AUDIT_WATCH:
-			if (name)
-				result = audit_watch_compare(rule->watch, name->ino, name->dev);
+			if (name) {
+				result = audit_watch_compare(rule->watch,
+							     name->ino,
+							     name->dev);
+				if (f->op == Audit_not_equal)
+					result = !result;
+			}
 			break;
 		case AUDIT_DIR:
-			if (ctx)
+			if (ctx) {
 				result = match_tree_refs(ctx, rule->tree);
+				if (f->op == Audit_not_equal)
+					result = !result;
+			}
 			break;
 		case AUDIT_LOGINUID:
 			result = audit_uid_comparator(audit_get_loginuid(tsk),
@@ -614,6 +655,11 @@ static int audit_filter_rules(struct task_struct *tsk,
 			break;
 		case AUDIT_LOGINUID_SET:
 			result = audit_comparator(audit_loginuid_set(tsk), f->op, f->val);
+			break;
+		case AUDIT_SADDR_FAM:
+			if (ctx && ctx->sockaddr)
+				result = audit_comparator(ctx->sockaddr->ss_family,
+							  f->op, f->val);
 			break;
 		case AUDIT_SUBJ_USER:
 		case AUDIT_SUBJ_ROLE:
@@ -627,7 +673,7 @@ static int audit_filter_rules(struct task_struct *tsk,
 			   logged upon error */
 			if (f->lsm_rule) {
 				if (need_sid) {
-					security_task_getsecid(tsk, &sid);
+					security_task_getsecid_subj(tsk, &sid);
 					need_sid = 0;
 				}
 				result = security_audit_rule_match(sid, f->type,
@@ -684,9 +730,13 @@ static int audit_filter_rules(struct task_struct *tsk,
 			break;
 		case AUDIT_PERM:
 			result = audit_match_perm(ctx, f->val);
+			if (f->op == Audit_not_equal)
+				result = !result;
 			break;
 		case AUDIT_FILETYPE:
 			result = audit_match_filetype(ctx, f->val);
+			if (f->op == Audit_not_equal)
+				result = !result;
 			break;
 		case AUDIT_FIELD_COMPARE:
 			result = audit_field_compare(tsk, cred, f, ctx, name);
@@ -707,10 +757,10 @@ static int audit_filter_rules(struct task_struct *tsk,
 	}
 	switch (rule->action) {
 	case AUDIT_NEVER:
-		*state = AUDIT_DISABLED;
+		*state = AUDIT_STATE_DISABLED;
 		break;
 	case AUDIT_ALWAYS:
-		*state = AUDIT_RECORD_CONTEXT;
+		*state = AUDIT_STATE_RECORD;
 		break;
 	}
 	return 1;
@@ -729,14 +779,14 @@ static enum audit_state audit_filter_task(struct task_struct *tsk, char **key)
 	list_for_each_entry_rcu(e, &audit_filter_list[AUDIT_FILTER_TASK], list) {
 		if (audit_filter_rules(tsk, &e->rule, NULL, NULL,
 				       &state, true)) {
-			if (state == AUDIT_RECORD_CONTEXT)
+			if (state == AUDIT_STATE_RECORD)
 				*key = kstrdup(e->rule.filterkey, GFP_ATOMIC);
 			rcu_read_unlock();
 			return state;
 		}
 	}
 	rcu_read_unlock();
-	return AUDIT_BUILD_CONTEXT;
+	return AUDIT_STATE_BUILD;
 }
 
 static int audit_in_mask(const struct audit_krule *rule, unsigned long val)
@@ -755,35 +805,32 @@ static int audit_in_mask(const struct audit_krule *rule, unsigned long val)
 	return rule->mask[word] & bit;
 }
 
-/* At syscall entry and exit time, this filter is called if the
- * audit_state is not low enough that auditing cannot take place, but is
- * also not high enough that we already know we have to write an audit
- * record (i.e., the state is AUDIT_SETUP_CONTEXT or AUDIT_BUILD_CONTEXT).
+/* At syscall exit time, this filter is called if the audit_state is
+ * not low enough that auditing cannot take place, but is also not
+ * high enough that we already know we have to write an audit record
+ * (i.e., the state is AUDIT_STATE_BUILD).
  */
-static enum audit_state audit_filter_syscall(struct task_struct *tsk,
-					     struct audit_context *ctx,
-					     struct list_head *list)
+static void audit_filter_syscall(struct task_struct *tsk,
+				 struct audit_context *ctx)
 {
 	struct audit_entry *e;
 	enum audit_state state;
 
 	if (auditd_test_task(tsk))
-		return AUDIT_DISABLED;
+		return;
 
 	rcu_read_lock();
-	if (!list_empty(list)) {
-		list_for_each_entry_rcu(e, list, list) {
-			if (audit_in_mask(&e->rule, ctx->major) &&
-			    audit_filter_rules(tsk, &e->rule, ctx, NULL,
-					       &state, false)) {
-				rcu_read_unlock();
-				ctx->current_state = state;
-				return state;
-			}
+	list_for_each_entry_rcu(e, &audit_filter_list[AUDIT_FILTER_EXIT], list) {
+		if (audit_in_mask(&e->rule, ctx->major) &&
+		    audit_filter_rules(tsk, &e->rule, ctx, NULL,
+				       &state, false)) {
+			rcu_read_unlock();
+			ctx->current_state = state;
+			return;
 		}
 	}
 	rcu_read_unlock();
-	return AUDIT_BUILD_CONTEXT;
+	return;
 }
 
 /*
@@ -798,9 +845,6 @@ static int audit_filter_inode_name(struct task_struct *tsk,
 	struct audit_entry *e;
 	enum audit_state state;
 
-	if (list_empty(list))
-		return 0;
-
 	list_for_each_entry_rcu(e, list, list) {
 		if (audit_in_mask(&e->rule, ctx->major) &&
 		    audit_filter_rules(tsk, &e->rule, ctx, n, &state, false)) {
@@ -808,7 +852,6 @@ static int audit_filter_inode_name(struct task_struct *tsk,
 			return 1;
 		}
 	}
-
 	return 0;
 }
 
@@ -840,6 +883,13 @@ static inline void audit_proctitle_free(struct audit_context *context)
 	context->proctitle.len = 0;
 }
 
+static inline void audit_free_module(struct audit_context *context)
+{
+	if (context->type == AUDIT_KERN_MODULE) {
+		kfree(context->module.name);
+		context->module.name = NULL;
+	}
+}
 static inline void audit_free_names(struct audit_context *context)
 {
 	struct audit_names *n, *next;
@@ -879,9 +929,11 @@ static inline struct audit_context *audit_alloc_context(enum audit_state state)
 	if (!context)
 		return NULL;
 	context->state = state;
-	context->prio = state == AUDIT_RECORD_CONTEXT ? ~0ULL : 0;
+	context->prio = state == AUDIT_STATE_RECORD ? ~0ULL : 0;
 	INIT_LIST_HEAD(&context->killed_trees);
 	INIT_LIST_HEAD(&context->names_list);
+	context->fds[0] = -1;
+	context->return_valid = AUDITSC_INVALID;
 	return context;
 }
 
@@ -904,8 +956,8 @@ int audit_alloc(struct task_struct *tsk)
 		return 0; /* Return if not auditing. */
 
 	state = audit_filter_task(tsk, &key);
-	if (state == AUDIT_DISABLED) {
-		clear_tsk_thread_flag(tsk, TIF_SYSCALL_AUDIT);
+	if (state == AUDIT_STATE_DISABLED) {
+		clear_task_syscall_work(tsk, SYSCALL_AUDIT);
 		return 0;
 	}
 
@@ -917,12 +969,13 @@ int audit_alloc(struct task_struct *tsk)
 	context->filterkey = key;
 
 	audit_set_context(tsk, context);
-	set_tsk_thread_flag(tsk, TIF_SYSCALL_AUDIT);
+	set_task_syscall_work(tsk, SYSCALL_AUDIT);
 	return 0;
 }
 
 static inline void audit_free_context(struct audit_context *context)
 {
+	audit_free_module(context);
 	audit_free_names(context);
 	unroll_tree_refs(context, NULL, 0);
 	free_tree_refs(context);
@@ -1139,7 +1192,8 @@ out:
 	kfree(buf_head);
 }
 
-void audit_log_cap(struct audit_buffer *ab, char *prefix, kernel_cap_t *cap)
+static void audit_log_cap(struct audit_buffer *ab, char *prefix,
+			  kernel_cap_t *cap)
 {
 	int i;
 
@@ -1177,6 +1231,7 @@ static void show_special(struct audit_context *context, int *call_panic)
 	switch (context->type) {
 	case AUDIT_SOCKETCALL: {
 		int nargs = context->socketcall.nargs;
+
 		audit_log_format(ab, "nargs=%d", nargs);
 		for (i = 0; i < nargs; i++)
 			audit_log_format(ab, " a%d=%lx", i,
@@ -1192,6 +1247,7 @@ static void show_special(struct audit_context *context, int *call_panic)
 		if (osid) {
 			char *ctx = NULL;
 			u32 len;
+
 			if (security_secid_to_secctx(osid, &ctx, &len)) {
 				audit_log_format(ab, " osid=%u", osid);
 				*call_panic = 1;
@@ -1241,6 +1297,7 @@ static void show_special(struct audit_context *context, int *call_panic)
 		break;
 	case AUDIT_MQ_GETSETATTR: {
 		struct mq_attr *attr = &context->mq_getsetattr.mqstat;
+
 		audit_log_format(ab,
 			"mqdes=%d mq_flags=0x%lx mq_maxmsg=%ld mq_msgsize=%ld "
 			"mq_curmsgs=%ld ",
@@ -1266,7 +1323,6 @@ static void show_special(struct audit_context *context, int *call_panic)
 		audit_log_format(ab, "name=");
 		if (context->module.name) {
 			audit_log_untrustedstring(ab, context->module.name);
-			kfree(context->module.name);
 		} else
 			audit_log_format(ab, "(null)");
 
@@ -1278,6 +1334,7 @@ static void show_special(struct audit_context *context, int *call_panic)
 static inline int audit_proctitle_rtrim(char *proctitle, int len)
 {
 	char *end = proctitle + len - 1;
+
 	while (end > proctitle && !isprint(*end))
 		end--;
 
@@ -1319,7 +1376,10 @@ static void audit_log_name(struct audit_context *context, struct audit_names *n,
 			/* name was specified as a relative path and the
 			 * directory component is the cwd
 			 */
-			audit_log_d_path(ab, " name=", &context->pwd);
+			if (context->pwd.dentry && context->pwd.mnt)
+				audit_log_d_path(ab, " name=", &context->pwd);
+			else
+				audit_log_format(ab, " name=(null)");
 			break;
 		default:
 			/* log the name's directory component */
@@ -1387,9 +1447,6 @@ static void audit_log_proctitle(void)
 	struct audit_context *context = audit_context();
 	struct audit_buffer *ab;
 
-	if (!context || context->dummy)
-		return;
-
 	ab = audit_log_start(context, GFP_KERNEL, AUDIT_PROCTITLE);
 	if (!ab)
 		return;	/* audit_panic or being filtered */
@@ -1439,7 +1496,7 @@ static void audit_log_exit(void)
 			 context->arch, context->major);
 	if (context->personality != PER_LINUX)
 		audit_log_format(ab, " per=%lx", context->personality);
-	if (context->return_valid)
+	if (context->return_valid != AUDITSC_INVALID)
 		audit_log_format(ab, " success=%s exit=%ld",
 				 (context->return_valid==AUDITSC_SUCCESS)?"yes":"no",
 				 context->return_code);
@@ -1466,6 +1523,7 @@ static void audit_log_exit(void)
 
 		case AUDIT_BPRM_FCAPS: {
 			struct audit_aux_data_bprm_fcaps *axs = (void *)aux;
+
 			audit_log_format(ab, "fver=%x", axs->fcap_ver);
 			audit_log_cap(ab, "fp", &axs->fcap.permitted);
 			audit_log_cap(ab, "fi", &axs->fcap.inheritable);
@@ -1576,13 +1634,12 @@ void __audit_free(struct task_struct *tsk)
 	 * need to log via audit_log_exit().
 	 */
 	if (tsk == current && !context->dummy && context->in_syscall) {
-		context->return_valid = 0;
+		context->return_valid = AUDITSC_INVALID;
 		context->return_code = 0;
 
-		audit_filter_syscall(tsk, context,
-				     &audit_filter_list[AUDIT_FILTER_EXIT]);
+		audit_filter_syscall(tsk, context);
 		audit_filter_inodes(tsk, context);
-		if (context->current_state == AUDIT_RECORD_CONTEXT)
+		if (context->current_state == AUDIT_STATE_RECORD)
 			audit_log_exit();
 	}
 
@@ -1601,7 +1658,7 @@ void __audit_free(struct task_struct *tsk)
  * Fill in audit context at syscall entry.  This only happens if the
  * audit context was created when the task was created and the state or
  * filters demand the audit context be built.  If the state from the
- * per-task filter or from the per-syscall filter is AUDIT_RECORD_CONTEXT,
+ * per-task filter or from the per-syscall filter is AUDIT_STATE_RECORD,
  * then the record will be written at syscall exit time (otherwise, it
  * will only be written if another part of the kernel requests that it
  * be written).
@@ -1618,17 +1675,17 @@ void __audit_syscall_entry(int major, unsigned long a1, unsigned long a2,
 	BUG_ON(context->in_syscall || context->name_count);
 
 	state = context->state;
-	if (state == AUDIT_DISABLED)
+	if (state == AUDIT_STATE_DISABLED)
 		return;
 
 	context->dummy = !audit_n_rules;
-	if (!context->dummy && state == AUDIT_BUILD_CONTEXT) {
+	if (!context->dummy && state == AUDIT_STATE_BUILD) {
 		context->prio = 0;
 		if (auditd_test_task(current))
 			return;
 	}
 
-	context->arch	    = syscall_get_arch();
+	context->arch	    = syscall_get_arch(current);
 	context->major      = major;
 	context->argv[0]    = a1;
 	context->argv[1]    = a2;
@@ -1647,7 +1704,7 @@ void __audit_syscall_entry(int major, unsigned long a1, unsigned long a2,
  * @return_code: return value of the syscall
  *
  * Tear down after system call.  If the audit context has been marked as
- * auditable (either because of the AUDIT_RECORD_CONTEXT state from
+ * auditable (either because of the AUDIT_STATE_RECORD state from
  * filtering, or because some other part of the kernel wrote an audit
  * message), then write out the syscall information.  In call cases,
  * free the names stored from getname().
@@ -1687,16 +1744,16 @@ void __audit_syscall_exit(int success, long return_code)
 		else
 			context->return_code  = return_code;
 
-		audit_filter_syscall(current, context,
-				     &audit_filter_list[AUDIT_FILTER_EXIT]);
+		audit_filter_syscall(current, context);
 		audit_filter_inodes(current, context);
-		if (context->current_state == AUDIT_RECORD_CONTEXT)
+		if (context->current_state == AUDIT_STATE_RECORD)
 			audit_log_exit();
 	}
 
 	context->in_syscall = 0;
-	context->prio = context->state == AUDIT_RECORD_CONTEXT ? ~0ULL : 0;
+	context->prio = context->state == AUDIT_STATE_RECORD ? ~0ULL : 0;
 
+	audit_free_module(context);
 	audit_free_names(context);
 	unroll_tree_refs(context, NULL, 0);
 	audit_free_aux(context);
@@ -1707,7 +1764,7 @@ void __audit_syscall_exit(int success, long return_code)
 	context->sockaddr_len = 0;
 	context->type = 0;
 	context->fds[0] = -1;
-	if (context->state != AUDIT_RECORD_CONTEXT) {
+	if (context->state != AUDIT_STATE_RECORD) {
 		kfree(context->filterkey);
 		context->filterkey = NULL;
 	}
@@ -1719,6 +1776,7 @@ static inline void handle_one(const struct inode *inode)
 	struct audit_tree_refs *p;
 	struct audit_chunk *chunk;
 	int count;
+
 	if (likely(!inode->i_fsnotify_marks))
 		return;
 	context = audit_context();
@@ -1760,8 +1818,10 @@ retry:
 	seq = read_seqbegin(&rename_lock);
 	for(;;) {
 		struct inode *inode = d_backing_inode(d);
+
 		if (inode && unlikely(inode->i_fsnotify_marks)) {
 			struct audit_chunk *chunk;
+
 			chunk = audit_tree_lookup(inode);
 			if (chunk) {
 				if (unlikely(!put_tree_ref(context, chunk))) {
@@ -1817,6 +1877,8 @@ static struct audit_names *audit_alloc_name(struct audit_context *context,
 	list_add_tail(&aname->list, &context->names_list);
 
 	context->name_count++;
+	if (!context->pwd.dentry)
+		get_fs_pwd(current->fs, &context->pwd);
 	return aname;
 }
 
@@ -1868,9 +1930,6 @@ void __audit_getname(struct filename *name)
 	n->name_len = AUDIT_NAME_FULL;
 	name->aname = n;
 	name->refcnt++;
-
-	if (!context->pwd.dentry)
-		get_fs_pwd(current->fs, &context->pwd);
 }
 
 static inline int audit_copy_fcaps(struct audit_names *name,
@@ -1882,7 +1941,7 @@ static inline int audit_copy_fcaps(struct audit_names *name,
 	if (!dentry)
 		return 0;
 
-	rc = get_vfs_caps_from_disk(dentry, &caps);
+	rc = get_vfs_caps_from_disk(&init_user_ns, dentry, &caps);
 	if (rc)
 		return rc;
 
@@ -1897,8 +1956,9 @@ static inline int audit_copy_fcaps(struct audit_names *name,
 }
 
 /* Copy inode data into an audit_names. */
-void audit_copy_inode(struct audit_names *name, const struct dentry *dentry,
-		      struct inode *inode, unsigned int flags)
+static void audit_copy_inode(struct audit_names *name,
+			     const struct dentry *dentry,
+			     struct inode *inode, unsigned int flags)
 {
 	name->ino   = inode->i_ino;
 	name->dev   = inode->i_sb->s_dev;
@@ -1935,18 +1995,16 @@ void __audit_inode(struct filename *name, const struct dentry *dentry,
 		return;
 
 	rcu_read_lock();
-	if (!list_empty(list)) {
-		list_for_each_entry_rcu(e, list, list) {
-			for (i = 0; i < e->rule.field_count; i++) {
-				struct audit_field *f = &e->rule.fields[i];
+	list_for_each_entry_rcu(e, list, list) {
+		for (i = 0; i < e->rule.field_count; i++) {
+			struct audit_field *f = &e->rule.fields[i];
 
-				if (f->type == AUDIT_FSTYPE
-				    && audit_comparator(inode->i_sb->s_magic,
-							f->op, f->val)
-				    && e->rule.action == AUDIT_NEVER) {
-					rcu_read_unlock();
-					return;
-				}
+			if (f->type == AUDIT_FSTYPE
+			    && audit_comparator(inode->i_sb->s_magic,
+						f->op, f->val)
+			    && e->rule.action == AUDIT_NEVER) {
+				rcu_read_unlock();
+				return;
 			}
 		}
 	}
@@ -2045,7 +2103,7 @@ void __audit_inode_child(struct inode *parent,
 {
 	struct audit_context *context = audit_context();
 	struct inode *inode = d_backing_inode(dentry);
-	const char *dname = dentry->d_name.name;
+	const struct qstr *dname = &dentry->d_name;
 	struct audit_names *n, *found_parent = NULL, *found_child = NULL;
 	struct audit_entry *e;
 	struct list_head *list = &audit_filter_list[AUDIT_FILTER_FS];
@@ -2055,18 +2113,16 @@ void __audit_inode_child(struct inode *parent,
 		return;
 
 	rcu_read_lock();
-	if (!list_empty(list)) {
-		list_for_each_entry_rcu(e, list, list) {
-			for (i = 0; i < e->rule.field_count; i++) {
-				struct audit_field *f = &e->rule.fields[i];
+	list_for_each_entry_rcu(e, list, list) {
+		for (i = 0; i < e->rule.field_count; i++) {
+			struct audit_field *f = &e->rule.fields[i];
 
-				if (f->type == AUDIT_FSTYPE
-				    && audit_comparator(parent->i_sb->s_magic,
-							f->op, f->val)
-				    && e->rule.action == AUDIT_NEVER) {
-					rcu_read_unlock();
-					return;
-				}
+			if (f->type == AUDIT_FSTYPE
+			    && audit_comparator(parent->i_sb->s_magic,
+						f->op, f->val)
+			    && e->rule.action == AUDIT_NEVER) {
+				rcu_read_unlock();
+				return;
 			}
 		}
 	}
@@ -2099,7 +2155,7 @@ void __audit_inode_child(struct inode *parent,
 		    (n->type != type && n->type != AUDIT_TYPE_UNKNOWN))
 			continue;
 
-		if (!strcmp(dname, n->name->name) ||
+		if (!strcmp(dname->name, n->name->name) ||
 		    !audit_compare_dname_path(dname, n->name->name,
 						found_parent ?
 						found_parent->name_len :
@@ -2161,7 +2217,7 @@ int auditsc_get_stamp(struct audit_context *ctx,
 	*serial    = ctx->serial;
 	if (!ctx->prio) {
 		ctx->prio = 1;
-		ctx->current_state = AUDIT_RECORD_CONTEXT;
+		ctx->current_state = AUDIT_STATE_RECORD;
 	}
 	return 1;
 }
@@ -2243,6 +2299,7 @@ void __audit_mq_notify(mqd_t mqdes, const struct sigevent *notification)
 void __audit_mq_getsetattr(mqd_t mqdes, struct mq_attr *mqstat)
 {
 	struct audit_context *context = audit_context();
+
 	context->mq_getsetattr.mqdes = mqdes;
 	context->mq_getsetattr.mqstat = *mqstat;
 	context->type = AUDIT_MQ_GETSETATTR;
@@ -2256,6 +2313,7 @@ void __audit_mq_getsetattr(mqd_t mqdes, struct mq_attr *mqstat)
 void __audit_ipc_obj(struct kern_ipc_perm *ipcp)
 {
 	struct audit_context *context = audit_context();
+
 	context->ipc.uid = ipcp->uid;
 	context->ipc.gid = ipcp->gid;
 	context->ipc.mode = ipcp->mode;
@@ -2320,6 +2378,7 @@ int __audit_socketcall(int nargs, unsigned long *args)
 void __audit_fd_pair(int fd1, int fd2)
 {
 	struct audit_context *context = audit_context();
+
 	context->fds[0] = fd1;
 	context->fds[1] = fd2;
 }
@@ -2337,6 +2396,7 @@ int __audit_sockaddr(int len, void *a)
 
 	if (!context->sockaddr) {
 		void *p = kmalloc(sizeof(struct sockaddr_storage), GFP_KERNEL);
+
 		if (!p)
 			return -ENOMEM;
 		context->sockaddr = p;
@@ -2355,35 +2415,22 @@ void __audit_ptrace(struct task_struct *t)
 	context->target_auid = audit_get_loginuid(t);
 	context->target_uid = task_uid(t);
 	context->target_sessionid = audit_get_sessionid(t);
-	security_task_getsecid(t, &context->target_sid);
+	security_task_getsecid_obj(t, &context->target_sid);
 	memcpy(context->target_comm, t->comm, TASK_COMM_LEN);
 }
 
 /**
- * audit_signal_info - record signal info for shutting down audit subsystem
- * @sig: signal value
+ * audit_signal_info_syscall - record signal info for syscalls
  * @t: task being signaled
  *
  * If the audit subsystem is being terminated, record the task (pid)
  * and uid that is doing that.
  */
-int audit_signal_info(int sig, struct task_struct *t)
+int audit_signal_info_syscall(struct task_struct *t)
 {
 	struct audit_aux_data_pids *axp;
 	struct audit_context *ctx = audit_context();
-	kuid_t uid = current_uid(), auid, t_uid = task_uid(t);
-
-	if (auditd_test_task(t) &&
-	    (sig == SIGTERM || sig == SIGHUP ||
-	     sig == SIGUSR1 || sig == SIGUSR2)) {
-		audit_sig_pid = task_tgid_nr(current);
-		auid = audit_get_loginuid(current);
-		if (uid_valid(auid))
-			audit_sig_uid = auid;
-		else
-			audit_sig_uid = uid;
-		security_task_getsecid(current, &audit_sig_sid);
-	}
+	kuid_t t_uid = task_uid(t);
 
 	if (!audit_signals || audit_dummy_context())
 		return 0;
@@ -2395,7 +2442,7 @@ int audit_signal_info(int sig, struct task_struct *t)
 		ctx->target_auid = audit_get_loginuid(t);
 		ctx->target_uid = t_uid;
 		ctx->target_sessionid = audit_get_sessionid(t);
-		security_task_getsecid(t, &ctx->target_sid);
+		security_task_getsecid_obj(t, &ctx->target_sid);
 		memcpy(ctx->target_comm, t->comm, TASK_COMM_LEN);
 		return 0;
 	}
@@ -2416,7 +2463,7 @@ int audit_signal_info(int sig, struct task_struct *t)
 	axp->target_auid[axp->pid_count] = audit_get_loginuid(t);
 	axp->target_uid[axp->pid_count] = t_uid;
 	axp->target_sessionid[axp->pid_count] = audit_get_sessionid(t);
-	security_task_getsecid(t, &axp->target_sid[axp->pid_count]);
+	security_task_getsecid_obj(t, &axp->target_sid[axp->pid_count]);
 	memcpy(axp->target_comm[axp->pid_count], t->comm, TASK_COMM_LEN);
 	axp->pid_count++;
 
@@ -2449,7 +2496,8 @@ int __audit_log_bprm_fcaps(struct linux_binprm *bprm,
 	ax->d.next = context->aux;
 	context->aux = (void *)ax;
 
-	get_vfs_caps_from_disk(bprm->file->f_path.dentry, &vcaps);
+	get_vfs_caps_from_disk(&init_user_ns,
+			       bprm->file->f_path.dentry, &vcaps);
 
 	ax->fcap.permitted = vcaps.permitted;
 	ax->fcap.inheritable = vcaps.inheritable;
@@ -2480,6 +2528,7 @@ int __audit_log_bprm_fcaps(struct linux_binprm *bprm,
 void __audit_log_capset(const struct cred *new, const struct cred *old)
 {
 	struct audit_context *context = audit_context();
+
 	context->capset.pid = task_tgid_nr(current);
 	context->capset.cap.effective   = new->cap_effective;
 	context->capset.cap.inheritable = new->cap_effective;
@@ -2491,6 +2540,7 @@ void __audit_log_capset(const struct cred *new, const struct cred *old)
 void __audit_mmap_fd(int fd, int flags)
 {
 	struct audit_context *context = audit_context();
+
 	context->mmap.fd = fd;
 	context->mmap.flags = flags;
 	context->type = AUDIT_MMAP;
@@ -2511,6 +2561,55 @@ void __audit_fanotify(unsigned int response)
 	audit_log(audit_context(), GFP_KERNEL,
 		AUDIT_FANOTIFY,	"resp=%u", response);
 }
+
+void __audit_tk_injoffset(struct timespec64 offset)
+{
+	audit_log(audit_context(), GFP_KERNEL, AUDIT_TIME_INJOFFSET,
+		  "sec=%lli nsec=%li",
+		  (long long)offset.tv_sec, offset.tv_nsec);
+}
+
+static void audit_log_ntp_val(const struct audit_ntp_data *ad,
+			      const char *op, enum audit_ntp_type type)
+{
+	const struct audit_ntp_val *val = &ad->vals[type];
+
+	if (val->newval == val->oldval)
+		return;
+
+	audit_log(audit_context(), GFP_KERNEL, AUDIT_TIME_ADJNTPVAL,
+		  "op=%s old=%lli new=%lli", op, val->oldval, val->newval);
+}
+
+void __audit_ntp_log(const struct audit_ntp_data *ad)
+{
+	audit_log_ntp_val(ad, "offset",	AUDIT_NTP_OFFSET);
+	audit_log_ntp_val(ad, "freq",	AUDIT_NTP_FREQ);
+	audit_log_ntp_val(ad, "status",	AUDIT_NTP_STATUS);
+	audit_log_ntp_val(ad, "tai",	AUDIT_NTP_TAI);
+	audit_log_ntp_val(ad, "tick",	AUDIT_NTP_TICK);
+	audit_log_ntp_val(ad, "adjust",	AUDIT_NTP_ADJUST);
+}
+
+void __audit_log_nfcfg(const char *name, u8 af, unsigned int nentries,
+		       enum audit_nfcfgop op, gfp_t gfp)
+{
+	struct audit_buffer *ab;
+	char comm[sizeof(current->comm)];
+
+	ab = audit_log_start(audit_context(), gfp, AUDIT_NETFILTER_CFG);
+	if (!ab)
+		return;
+	audit_log_format(ab, "table=%s family=%u entries=%u op=%s",
+			 name, af, nentries, audit_nfcfgs[op].s);
+
+	audit_log_format(ab, " pid=%u", task_pid_nr(current));
+	audit_log_task_context(ab); /* subj= */
+	audit_log_format(ab, " comm=");
+	audit_log_untrustedstring(ab, get_task_comm(comm, current));
+	audit_log_end(ab);
+}
+EXPORT_SYMBOL_GPL(__audit_log_nfcfg);
 
 static void audit_log_task(struct audit_buffer *ab)
 {
@@ -2580,7 +2679,7 @@ void audit_seccomp(unsigned long syscall, long signr, int code)
 		return;
 	audit_log_task(ab);
 	audit_log_format(ab, " sig=%ld arch=%x syscall=%ld compat=%d ip=0x%lx code=0x%x",
-			 signr, syscall_get_arch(), syscall,
+			 signr, syscall_get_arch(current), syscall,
 			 in_compat_syscall(), KSTK_EIP(current), code);
 	audit_log_end(ab);
 }
@@ -2607,6 +2706,7 @@ void audit_seccomp_actions_logged(const char *names, const char *old_names,
 struct list_head *audit_killed_trees(void)
 {
 	struct audit_context *ctx = audit_context();
+
 	if (likely(!ctx || !ctx->in_syscall))
 		return NULL;
 	return &ctx->killed_trees;

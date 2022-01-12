@@ -1,16 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Card-specific functions for the Siano SMS1xxx USB dongle
  *
  *  Copyright (c) 2008 Michael Krufky <mkrufky@linuxtv.org>
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2 as
- *  published by the Free Software Foundation;
- *
- *  Software distributed under the License is distributed on an "AS IS"
- *  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied.
- *
- *  See the GNU General Public License for more details.
  */
 
 #include "sms-cards.h"
@@ -87,7 +79,7 @@ static struct sms_board sms_boards[] = {
 		.board_cfg.rf_switch_uhf = 17,
 	},
 	[SMS1XXX_BOARD_HAUPPAUGE_TIGER_MINICARD_R2] = {
-		.name	= "Hauppauge WinTV MiniCard",
+		.name	= "Hauppauge WinTV MiniCard Rev 2",
 		.type	= SMS_NOVA_B0,
 		.fw[DEVICE_MODE_DVBT_BDA] = SMS_FW_DVBT_HCW_55XXX,
 		.default_mode = DEVICE_MODE_DVBT_BDA,

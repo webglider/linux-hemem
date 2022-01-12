@@ -1,10 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (c) 2014-2015 Hisilicon Limited.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #ifndef _HNS_DSAF_PPE_H
@@ -96,7 +92,7 @@ struct ppe_common_cb {
 	u8 comm_index;   /*ppe_common index*/
 
 	u32 ppe_num;
-	struct hns_ppe_cb ppe_cb[0];
+	struct hns_ppe_cb ppe_cb[];
 
 };
 

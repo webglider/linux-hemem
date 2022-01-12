@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * STi Mailbox
  *
@@ -7,11 +8,6 @@
  *
  * Based on the original driver written by;
  *   Alexandre Torgue, Olivier Lebreton and Loic Pallardy
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include <linux/err.h>
@@ -40,12 +36,7 @@
 #define MBOX_BASE(mdev, inst)   ((mdev)->base + ((inst) * 4))
 
 /**
- * STi Mailbox device data
- *
- * An IP Mailbox is currently composed of 4 instances
- * Each instance is currently composed of 32 channels
- * This means that we have 128 channels per Mailbox
- * A channel an be used for TX or RX
+ * struct sti_mbox_device - STi Mailbox device data
  *
  * @dev:	Device to which it is attached
  * @mbox:	Representation of a communication channel controller
@@ -53,6 +44,11 @@
  * @name:	Name of the mailbox
  * @enabled:	Local copy of enabled channels
  * @lock:	Mutex protecting enabled status
+ *
+ * An IP Mailbox is currently composed of 4 instances
+ * Each instance is currently composed of 32 channels
+ * This means that we have 128 channels per Mailbox
+ * A channel an be used for TX or RX
  */
 struct sti_mbox_device {
 	struct device		*dev;
@@ -64,7 +60,7 @@ struct sti_mbox_device {
 };
 
 /**
- * STi Mailbox platform specific configuration
+ * struct sti_mbox_pdata - STi Mailbox platform specific configuration
  *
  * @num_inst:	Maximum number of instances in one HW Mailbox
  * @num_chan:	Maximum number of channel per instance
@@ -75,7 +71,7 @@ struct sti_mbox_pdata {
 };
 
 /**
- * STi Mailbox allocated channel information
+ * struct sti_channel - STi Mailbox allocated channel information
  *
  * @mdev:	Pointer to parent Mailbox device
  * @instance:	Instance number channel resides in

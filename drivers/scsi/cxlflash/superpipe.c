@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * CXL Flash Device Driver
  *
@@ -5,11 +6,6 @@
  *             Matthew R. Ochs <mrochs@linux.vnet.ibm.com>, IBM Corporation
  *
  * Copyright (C) 2015 IBM Corporation
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
 
 #include <linux/delay.h>
@@ -34,7 +30,7 @@ struct cxlflash_global global;
 
 /**
  * marshal_rele_to_resize() - translate release to resize structure
- * @rele:	Source structure from which to translate/copy.
+ * @release:	Source structure from which to translate/copy.
  * @resize:	Destination structure for the translate/copy.
  */
 static void marshal_rele_to_resize(struct dk_cxlflash_release *release,
@@ -48,7 +44,7 @@ static void marshal_rele_to_resize(struct dk_cxlflash_release *release,
 /**
  * marshal_det_to_rele() - translate detach to release structure
  * @detach:	Destination structure for the translate/copy.
- * @rele:	Source structure from which to translate/copy.
+ * @release:	Source structure from which to translate/copy.
  */
 static void marshal_det_to_rele(struct dk_cxlflash_detach *detach,
 				struct dk_cxlflash_release *release)
@@ -373,20 +369,18 @@ retry:
 		goto out;
 	}
 
-	if (driver_byte(result) == DRIVER_SENSE) {
-		result &= ~(0xFF<<24); /* DRIVER_SENSE is not an error */
+	if (result > 0 && scsi_sense_valid(&sshdr)) {
 		if (result & SAM_STAT_CHECK_CONDITION) {
 			switch (sshdr.sense_key) {
 			case NO_SENSE:
 			case RECOVERED_ERROR:
-				/* fall through */
 			case NOT_READY:
 				result &= ~SAM_STAT_CHECK_CONDITION;
 				break;
 			case UNIT_ATTENTION:
 				switch (sshdr.asc) {
 				case 0x29: /* Power on Reset or Device Reset */
-					/* fall through */
+					fallthrough;
 				case 0x2A: /* Device capacity changed */
 				case 0x3F: /* Report LUNs changed */
 					/* Retry the command once more */
@@ -522,7 +516,7 @@ void rhte_checkin(struct ctx_info *ctxi,
 }
 
 /**
- * rhte_format1() - populates a RHTE for format 1
+ * rht_format1() - populates a RHTE for format 1
  * @rhte:	RHTE to populate.
  * @lun_id:	LUN ID of LUN associated with RHTE.
  * @perm:	Desired permissions for RHTE.
@@ -1795,13 +1789,12 @@ static int process_sense(struct scsi_device *sdev,
 	switch (sshdr.sense_key) {
 	case NO_SENSE:
 	case RECOVERED_ERROR:
-		/* fall through */
 	case NOT_READY:
 		break;
 	case UNIT_ATTENTION:
 		switch (sshdr.asc) {
 		case 0x29: /* Power on Reset or Device Reset */
-			/* fall through */
+			fallthrough;
 		case 0x2A: /* Device settings/capacity changed */
 			rc = read_cap16(sdev, lli);
 			if (rc) {
@@ -2161,7 +2154,7 @@ int cxlflash_ioctl(struct scsi_device *sdev, unsigned int cmd, void __user *arg)
 		if (unlikely(rc))
 			goto cxlflash_ioctl_exit;
 
-		/* fall through */
+		fallthrough;
 
 	case DK_CXLFLASH_MANAGE_LUN:
 		known_ioctl = true;
@@ -2172,7 +2165,7 @@ int cxlflash_ioctl(struct scsi_device *sdev, unsigned int cmd, void __user *arg)
 		if (likely(do_ioctl))
 			break;
 
-		/* fall through */
+		fallthrough;
 	default:
 		rc = -EINVAL;
 		goto cxlflash_ioctl_exit;

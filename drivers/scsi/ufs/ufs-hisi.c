@@ -1,11 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * HiSilicon Hixxxx UFS Driver
  *
  * Copyright (c) 2016-2017 Linaro Ltd.
  * Copyright (c) 2016-2017 HiSilicon Technologies Co., Ltd.
- *
- * Released under the GPLv2 only.
- * SPDX-License-Identifier: GPL-2.0
  */
 
 #include <linux/time.h>
@@ -237,7 +235,7 @@ static int ufs_hisi_link_startup_pre_change(struct ufs_hba *hba)
 	ufshcd_writel(hba, reg, REG_AUTO_HIBERNATE_IDLE_TIMER);
 
 	/* Unipro PA_Local_TX_LCC_Enable */
-	ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0x155E, 0x0), 0x0);
+	ufshcd_disable_host_tx_lcc(hba);
 	/* close Unipro VS_Mk2ExtnSupport */
 	ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0xD0AB, 0x0), 0x0);
 	ufshcd_dme_get(hba, UIC_ARG_MIB_SEL(0xD0AB, 0x0), &value);
@@ -293,121 +291,9 @@ static int ufs_hisi_link_startup_notify(struct ufs_hba *hba,
 	return err;
 }
 
-struct ufs_hisi_dev_params {
-	u32 pwm_rx_gear; /* pwm rx gear to work in */
-	u32 pwm_tx_gear; /* pwm tx gear to work in */
-	u32 hs_rx_gear;  /* hs rx gear to work in */
-	u32 hs_tx_gear;  /* hs tx gear to work in */
-	u32 rx_lanes;    /* number of rx lanes */
-	u32 tx_lanes;    /* number of tx lanes */
-	u32 rx_pwr_pwm;  /* rx pwm working pwr */
-	u32 tx_pwr_pwm;  /* tx pwm working pwr */
-	u32 rx_pwr_hs;   /* rx hs working pwr */
-	u32 tx_pwr_hs;   /* tx hs working pwr */
-	u32 hs_rate;     /* rate A/B to work in HS */
-	u32 desired_working_mode;
-};
-
-static int ufs_hisi_get_pwr_dev_param(
-				    struct ufs_hisi_dev_params *hisi_param,
-				    struct ufs_pa_layer_attr *dev_max,
-				    struct ufs_pa_layer_attr *agreed_pwr)
+static void ufs_hisi_set_dev_cap(struct ufs_dev_params *hisi_param)
 {
-	int min_hisi_gear;
-	int min_dev_gear;
-	bool is_dev_sup_hs = false;
-	bool is_hisi_max_hs = false;
-
-	if (dev_max->pwr_rx == FASTAUTO_MODE || dev_max->pwr_rx == FAST_MODE)
-		is_dev_sup_hs = true;
-
-	if (hisi_param->desired_working_mode == FAST) {
-		is_hisi_max_hs = true;
-		min_hisi_gear = min_t(u32, hisi_param->hs_rx_gear,
-				       hisi_param->hs_tx_gear);
-	} else {
-		min_hisi_gear = min_t(u32, hisi_param->pwm_rx_gear,
-				       hisi_param->pwm_tx_gear);
-	}
-
-	/*
-	 * device doesn't support HS but
-	 * hisi_param->desired_working_mode is HS,
-	 * thus device and hisi_param don't agree
-	 */
-	if (!is_dev_sup_hs && is_hisi_max_hs) {
-		pr_err("%s: device not support HS\n", __func__);
-		return -ENOTSUPP;
-	} else if (is_dev_sup_hs && is_hisi_max_hs) {
-		/*
-		 * since device supports HS, it supports FAST_MODE.
-		 * since hisi_param->desired_working_mode is also HS
-		 * then final decision (FAST/FASTAUTO) is done according
-		 * to hisi_params as it is the restricting factor
-		 */
-		agreed_pwr->pwr_rx = agreed_pwr->pwr_tx =
-			hisi_param->rx_pwr_hs;
-	} else {
-		/*
-		 * here hisi_param->desired_working_mode is PWM.
-		 * it doesn't matter whether device supports HS or PWM,
-		 * in both cases hisi_param->desired_working_mode will
-		 * determine the mode
-		 */
-		agreed_pwr->pwr_rx = agreed_pwr->pwr_tx =
-			hisi_param->rx_pwr_pwm;
-	}
-
-	/*
-	 * we would like tx to work in the minimum number of lanes
-	 * between device capability and vendor preferences.
-	 * the same decision will be made for rx
-	 */
-	agreed_pwr->lane_tx =
-		min_t(u32, dev_max->lane_tx, hisi_param->tx_lanes);
-	agreed_pwr->lane_rx =
-		min_t(u32, dev_max->lane_rx, hisi_param->rx_lanes);
-
-	/* device maximum gear is the minimum between device rx and tx gears */
-	min_dev_gear = min_t(u32, dev_max->gear_rx, dev_max->gear_tx);
-
-	/*
-	 * if both device capabilities and vendor pre-defined preferences are
-	 * both HS or both PWM then set the minimum gear to be the chosen
-	 * working gear.
-	 * if one is PWM and one is HS then the one that is PWM get to decide
-	 * what is the gear, as it is the one that also decided previously what
-	 * pwr the device will be configured to.
-	 */
-	if ((is_dev_sup_hs && is_hisi_max_hs) ||
-	    (!is_dev_sup_hs && !is_hisi_max_hs))
-		agreed_pwr->gear_rx = agreed_pwr->gear_tx =
-			min_t(u32, min_dev_gear, min_hisi_gear);
-	else
-		agreed_pwr->gear_rx = agreed_pwr->gear_tx = min_hisi_gear;
-
-	agreed_pwr->hs_rate = hisi_param->hs_rate;
-
-	pr_info("ufs final power mode: gear = %d, lane = %d, pwr = %d, rate = %d\n",
-		agreed_pwr->gear_rx, agreed_pwr->lane_rx, agreed_pwr->pwr_rx,
-		agreed_pwr->hs_rate);
-	return 0;
-}
-
-static void ufs_hisi_set_dev_cap(struct ufs_hisi_dev_params *hisi_param)
-{
-	hisi_param->rx_lanes = UFS_HISI_LIMIT_NUM_LANES_RX;
-	hisi_param->tx_lanes = UFS_HISI_LIMIT_NUM_LANES_TX;
-	hisi_param->hs_rx_gear = UFS_HISI_LIMIT_HSGEAR_RX;
-	hisi_param->hs_tx_gear = UFS_HISI_LIMIT_HSGEAR_TX;
-	hisi_param->pwm_rx_gear = UFS_HISI_LIMIT_PWMGEAR_RX;
-	hisi_param->pwm_tx_gear = UFS_HISI_LIMIT_PWMGEAR_TX;
-	hisi_param->rx_pwr_pwm = UFS_HISI_LIMIT_RX_PWR_PWM;
-	hisi_param->tx_pwr_pwm = UFS_HISI_LIMIT_TX_PWR_PWM;
-	hisi_param->rx_pwr_hs = UFS_HISI_LIMIT_RX_PWR_HS;
-	hisi_param->tx_pwr_hs = UFS_HISI_LIMIT_TX_PWR_HS;
-	hisi_param->hs_rate = UFS_HISI_LIMIT_HS_RATE;
-	hisi_param->desired_working_mode = UFS_HISI_LIMIT_DESIRED_MODE;
+	ufshcd_init_pwr_dev_param(hisi_param);
 }
 
 static void ufs_hisi_pwr_change_pre_change(struct ufs_hba *hba)
@@ -477,7 +363,7 @@ static int ufs_hisi_pwr_change_notify(struct ufs_hba *hba,
 				       struct ufs_pa_layer_attr *dev_max_params,
 				       struct ufs_pa_layer_attr *dev_req_params)
 {
-	struct ufs_hisi_dev_params ufs_hisi_cap;
+	struct ufs_dev_params ufs_hisi_cap;
 	int ret = 0;
 
 	if (!dev_req_params) {
@@ -490,8 +376,8 @@ static int ufs_hisi_pwr_change_notify(struct ufs_hba *hba,
 	switch (status) {
 	case PRE_CHANGE:
 		ufs_hisi_set_dev_cap(&ufs_hisi_cap);
-		ret = ufs_hisi_get_pwr_dev_param(
-			&ufs_hisi_cap, dev_max_params, dev_req_params);
+		ret = ufshcd_get_pwr_dev_param(&ufs_hisi_cap,
+					       dev_max_params, dev_req_params);
 		if (ret) {
 			dev_err(hba->dev,
 			    "%s: failed to determine capabilities\n", __func__);
@@ -514,7 +400,7 @@ static int ufs_hisi_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 {
 	struct ufs_hisi_host *host = ufshcd_get_variant(hba);
 
-	if (ufshcd_is_runtime_pm(pm_op))
+	if (pm_op == UFS_RUNTIME_PM)
 		return 0;
 
 	if (host->in_suspend) {
@@ -550,17 +436,12 @@ static int ufs_hisi_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 
 static int ufs_hisi_get_resource(struct ufs_hisi_host *host)
 {
-	struct resource *mem_res;
 	struct device *dev = host->hba->dev;
 	struct platform_device *pdev = to_platform_device(dev);
 
 	/* get resource of ufs sys ctrl */
-	mem_res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	host->ufs_sys_ctrl = devm_ioremap_resource(dev, mem_res);
-	if (IS_ERR(host->ufs_sys_ctrl))
-		return PTR_ERR(host->ufs_sys_ctrl);
-
-	return 0;
+	host->ufs_sys_ctrl = devm_platform_ioremap_resource(pdev, 1);
+	return PTR_ERR_OR_ZERO(host->ufs_sys_ctrl);
 }
 
 static void ufs_hisi_set_pm_lvl(struct ufs_hba *hba)
@@ -586,17 +467,24 @@ static int ufs_hisi_init_common(struct ufs_hba *hba)
 	host->hba = hba;
 	ufshcd_set_variant(hba, host);
 
-	host->rst  = devm_reset_control_get(dev, "rst");
+	host->rst = devm_reset_control_get(dev, "rst");
+	if (IS_ERR(host->rst)) {
+		dev_err(dev, "%s: failed to get reset control\n", __func__);
+		err = PTR_ERR(host->rst);
+		goto error;
+	}
 
 	ufs_hisi_set_pm_lvl(hba);
 
 	err = ufs_hisi_get_resource(host);
-	if (err) {
-		ufshcd_set_variant(hba, NULL);
-		return err;
-	}
+	if (err)
+		goto error;
 
 	return 0;
+
+error:
+	ufshcd_set_variant(hba, NULL);
+	return err;
 }
 
 static int ufs_hi3660_init(struct ufs_hba *hba)
@@ -684,11 +572,10 @@ static int ufs_hisi_remove(struct platform_device *pdev)
 }
 
 static const struct dev_pm_ops ufs_hisi_pm_ops = {
-	.suspend	= ufshcd_pltfrm_suspend,
-	.resume		= ufshcd_pltfrm_resume,
-	.runtime_suspend = ufshcd_pltfrm_runtime_suspend,
-	.runtime_resume  = ufshcd_pltfrm_runtime_resume,
-	.runtime_idle    = ufshcd_pltfrm_runtime_idle,
+	SET_SYSTEM_SLEEP_PM_OPS(ufshcd_system_suspend, ufshcd_system_resume)
+	SET_RUNTIME_PM_OPS(ufshcd_runtime_suspend, ufshcd_runtime_resume, NULL)
+	.prepare	 = ufshcd_suspend_prepare,
+	.complete	 = ufshcd_resume_complete,
 };
 
 static struct platform_driver ufs_hisi_pltform = {

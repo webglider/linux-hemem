@@ -71,11 +71,16 @@ extern void *__memmove(void *dest, const void *src, size_t n);
 #define memcpy(dst, src, len) __memcpy(dst, src, len)
 #define memmove(dst, src, len) __memmove(dst, src, len)
 #define memset(s, c, n) __memset(s, c, n)
+#define strlen(s) __strlen(s)
+
+#define __no_sanitize_prefix_strfunc(x) __##x
 
 #ifndef __NO_FORTIFY
 #define __NO_FORTIFY /* FORTIFY_SOURCE uses __builtin_memcpy, etc. */
 #endif
 
+#else
+#define __no_sanitize_prefix_strfunc(x) x
 #endif /* defined(CONFIG_KASAN) && !defined(__SANITIZE_ADDRESS__) */
 
 void *__memset16(uint16_t *s, uint16_t v, size_t count);
@@ -102,16 +107,18 @@ static inline void *memset64(uint64_t *s, uint64_t v, size_t count)
 #ifdef __HAVE_ARCH_MEMCHR
 static inline void *memchr(const void * s, int c, size_t n)
 {
-	register int r0 asm("0") = (char) c;
 	const void *ret = s + n;
 
 	asm volatile(
-		"0:	srst	%0,%1\n"
+		"	lgr	0,%[c]\n"
+		"0:	srst	%[ret],%[s]\n"
 		"	jo	0b\n"
 		"	jl	1f\n"
-		"	la	%0,0\n"
+		"	la	%[ret],0\n"
 		"1:"
-		: "+a" (ret), "+&a" (s) : "d" (r0) : "cc", "memory");
+		: [ret] "+&a" (ret), [s] "+&a" (s)
+		: [c] "d" (c)
+		: "cc", "memory", "0");
 	return (void *) ret;
 }
 #endif
@@ -119,13 +126,15 @@ static inline void *memchr(const void * s, int c, size_t n)
 #ifdef __HAVE_ARCH_MEMSCAN
 static inline void *memscan(void *s, int c, size_t n)
 {
-	register int r0 asm("0") = (char) c;
 	const void *ret = s + n;
 
 	asm volatile(
-		"0:	srst	%0,%1\n"
+		"	lgr	0,%[c]\n"
+		"0:	srst	%[ret],%[s]\n"
 		"	jo	0b\n"
-		: "+a" (ret), "+&a" (s) : "d" (r0) : "cc", "memory");
+		: [ret] "+&a" (ret), [s] "+&a" (s)
+		: [c] "d" (c)
+		: "cc", "memory", "0");
 	return (void *) ret;
 }
 #endif
@@ -133,17 +142,18 @@ static inline void *memscan(void *s, int c, size_t n)
 #ifdef __HAVE_ARCH_STRCAT
 static inline char *strcat(char *dst, const char *src)
 {
-	register int r0 asm("0") = 0;
-	unsigned long dummy;
+	unsigned long dummy = 0;
 	char *ret = dst;
 
 	asm volatile(
-		"0:	srst	%0,%1\n"
+		"	lghi	0,0\n"
+		"0:	srst	%[dummy],%[dst]\n"
 		"	jo	0b\n"
-		"1:	mvst	%0,%2\n"
+		"1:	mvst	%[dummy],%[src]\n"
 		"	jo	1b"
-		: "=&a" (dummy), "+a" (dst), "+a" (src)
-		: "d" (r0), "0" (0) : "cc", "memory" );
+		: [dummy] "+&a" (dummy), [dst] "+&a" (dst), [src] "+&a" (src)
+		:
+		: "cc", "memory", "0");
 	return ret;
 }
 #endif
@@ -151,43 +161,49 @@ static inline char *strcat(char *dst, const char *src)
 #ifdef __HAVE_ARCH_STRCPY
 static inline char *strcpy(char *dst, const char *src)
 {
-	register int r0 asm("0") = 0;
 	char *ret = dst;
 
 	asm volatile(
-		"0:	mvst	%0,%1\n"
+		"	lghi	0,0\n"
+		"0:	mvst	%[dst],%[src]\n"
 		"	jo	0b"
-		: "+&a" (dst), "+&a" (src) : "d" (r0)
-		: "cc", "memory");
+		: [dst] "+&a" (dst), [src] "+&a" (src)
+		:
+		: "cc", "memory", "0");
 	return ret;
 }
 #endif
 
-#ifdef __HAVE_ARCH_STRLEN
-static inline size_t strlen(const char *s)
+#if defined(__HAVE_ARCH_STRLEN) || (defined(CONFIG_KASAN) && !defined(__SANITIZE_ADDRESS__))
+static inline size_t __no_sanitize_prefix_strfunc(strlen)(const char *s)
 {
-	register unsigned long r0 asm("0") = 0;
+	unsigned long end = 0;
 	const char *tmp = s;
 
 	asm volatile(
-		"0:	srst	%0,%1\n"
+		"	lghi	0,0\n"
+		"0:	srst	%[end],%[tmp]\n"
 		"	jo	0b"
-		: "+d" (r0), "+a" (tmp) :  : "cc", "memory");
-	return r0 - (unsigned long) s;
+		: [end] "+&a" (end), [tmp] "+&a" (tmp)
+		:
+		: "cc", "memory", "0");
+	return end - (unsigned long)s;
 }
 #endif
 
 #ifdef __HAVE_ARCH_STRNLEN
 static inline size_t strnlen(const char * s, size_t n)
 {
-	register int r0 asm("0") = 0;
 	const char *tmp = s;
 	const char *end = s + n;
 
 	asm volatile(
-		"0:	srst	%0,%1\n"
+		"	lghi	0,0\n"
+		"0:	srst	%[end],%[tmp]\n"
 		"	jo	0b"
-		: "+a" (end), "+a" (tmp) : "d" (r0)  : "cc", "memory");
+		: [end] "+&a" (end), [tmp] "+&a" (tmp)
+		:
+		: "cc", "memory", "0");
 	return end - s;
 }
 #endif

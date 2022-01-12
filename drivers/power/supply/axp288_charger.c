@@ -1,18 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * axp288_charger.c - X-power AXP288 PMIC Charger driver
  *
  * Copyright (C) 2016-2017 Hans de Goede <hdegoede@redhat.com>
  * Copyright (C) 2014 Intel Corporation
  * Author: Ramakrishna Pallala <ramakrishna.pallala@intel.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/acpi.h>
@@ -29,6 +21,7 @@
 #include <linux/property.h>
 #include <linux/mfd/axp20x.h>
 #include <linux/extcon.h>
+#include <linux/dmi.h>
 
 #define PS_STAT_VBUS_TRIGGER		BIT(0)
 #define PS_STAT_BAT_CHRG_DIR		BIT(2)
@@ -553,6 +546,55 @@ out:
 	return IRQ_HANDLED;
 }
 
+/*
+ * The HP Pavilion x2 10 series comes in a number of variants:
+ * Bay Trail SoC    + AXP288 PMIC, Micro-USB, DMI_BOARD_NAME: "8021"
+ * Bay Trail SoC    + AXP288 PMIC, Type-C,    DMI_BOARD_NAME: "815D"
+ * Cherry Trail SoC + AXP288 PMIC, Type-C,    DMI_BOARD_NAME: "813E"
+ * Cherry Trail SoC + TI PMIC,     Type-C,    DMI_BOARD_NAME: "827C" or "82F4"
+ *
+ * The variants with the AXP288 + Type-C connector are all kinds of special:
+ *
+ * 1. They use a Type-C connector which the AXP288 does not support, so when
+ * using a Type-C charger it is not recognized. Unlike most AXP288 devices,
+ * this model actually has mostly working ACPI AC / Battery code, the ACPI code
+ * "solves" this by simply setting the input_current_limit to 3A.
+ * There are still some issues with the ACPI code, so we use this native driver,
+ * and to solve the charging not working (500mA is not enough) issue we hardcode
+ * the 3A input_current_limit like the ACPI code does.
+ *
+ * 2. If no charger is connected the machine boots with the vbus-path disabled.
+ * Normally this is done when a 5V boost converter is active to avoid the PMIC
+ * trying to charge from the 5V boost converter's output. This is done when
+ * an OTG host cable is inserted and the ID pin on the micro-B receptacle is
+ * pulled low and the ID pin has an ACPI event handler associated with it
+ * which re-enables the vbus-path when the ID pin is pulled high when the
+ * OTG host cable is removed. The Type-C connector has no ID pin, there is
+ * no ID pin handler and there appears to be no 5V boost converter, so we
+ * end up not charging because the vbus-path is disabled, until we unplug
+ * the charger which automatically clears the vbus-path disable bit and then
+ * on the second plug-in of the adapter we start charging. To solve the not
+ * charging on first charger plugin we unconditionally enable the vbus-path at
+ * probe on this model, which is safe since there is no 5V boost converter.
+ */
+static const struct dmi_system_id axp288_hp_x2_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Hewlett-Packard"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "HP Pavilion x2 Detachable"),
+			DMI_EXACT_MATCH(DMI_BOARD_NAME, "815D"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "HP"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "HP Pavilion x2 Detachable"),
+			DMI_EXACT_MATCH(DMI_BOARD_NAME, "813E"),
+		},
+	},
+	{} /* Terminating entry */
+};
+
 static void axp288_charger_extcon_evt_worker(struct work_struct *work)
 {
 	struct axp288_chrg_info *info =
@@ -576,7 +618,11 @@ static void axp288_charger_extcon_evt_worker(struct work_struct *work)
 	}
 
 	/* Determine cable/charger type */
-	if (extcon_get_state(edev, EXTCON_CHG_USB_SDP) > 0) {
+	if (dmi_check_system(axp288_hp_x2_dmi_ids)) {
+		/* See comment above axp288_hp_x2_dmi_ids declaration */
+		dev_dbg(&info->pdev->dev, "HP X2 with Type-C, setting inlmt to 3A\n");
+		current_limit = 3000000;
+	} else if (extcon_get_state(edev, EXTCON_CHG_USB_SDP) > 0) {
 		dev_dbg(&info->pdev->dev, "USB SDP charger is connected\n");
 		current_limit = 500000;
 	} else if (extcon_get_state(edev, EXTCON_CHG_USB_CDP) > 0) {
@@ -693,6 +739,13 @@ static int charger_init_hw_regs(struct axp288_chrg_info *info)
 		return ret;
 	}
 
+	if (dmi_check_system(axp288_hp_x2_dmi_ids)) {
+		/* See comment above axp288_hp_x2_dmi_ids declaration */
+		ret = axp288_charger_vbus_path_select(info, true);
+		if (ret < 0)
+			return ret;
+	}
+
 	/* Read current charge voltage and current limit */
 	ret = regmap_read(info->regmap, AXP20X_CHRG_CTRL1, &val);
 	if (ret < 0) {
@@ -760,7 +813,7 @@ static int axp288_charger_probe(struct platform_device *pdev)
 	if (val == 0)
 		return -ENODEV;
 
-	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
+	info = devm_kzalloc(dev, sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
 
@@ -770,7 +823,7 @@ static int axp288_charger_probe(struct platform_device *pdev)
 
 	info->cable.edev = extcon_get_extcon_dev(AXP288_EXTCON_DEV_NAME);
 	if (info->cable.edev == NULL) {
-		dev_dbg(&pdev->dev, "%s is not ready, probe deferred\n",
+		dev_dbg(dev, "%s is not ready, probe deferred\n",
 			AXP288_EXTCON_DEV_NAME);
 		return -EPROBE_DEFER;
 	}
@@ -781,8 +834,7 @@ static int axp288_charger_probe(struct platform_device *pdev)
 			dev_dbg(dev, "EXTCON_USB_HOST is not ready, probe deferred\n");
 			return -EPROBE_DEFER;
 		}
-		dev_info(&pdev->dev,
-			 "Using " USB_HOST_EXTCON_HID " extcon for usb-id\n");
+		dev_info(dev, "Using " USB_HOST_EXTCON_HID " extcon for usb-id\n");
 	}
 
 	platform_set_drvdata(pdev, info);
@@ -821,7 +873,7 @@ static int axp288_charger_probe(struct platform_device *pdev)
 	INIT_WORK(&info->otg.work, axp288_charger_otg_evt_worker);
 	info->otg.id_nb.notifier_call = axp288_charger_handle_otg_evt;
 	if (info->otg.cable) {
-		ret = devm_extcon_register_notifier(&pdev->dev, info->otg.cable,
+		ret = devm_extcon_register_notifier(dev, info->otg.cable,
 					EXTCON_USB_HOST, &info->otg.id_nb);
 		if (ret) {
 			dev_err(dev, "failed to register EXTCON_USB_HOST notifier\n");
@@ -833,6 +885,9 @@ static int axp288_charger_probe(struct platform_device *pdev)
 	/* Register charger interrupts */
 	for (i = 0; i < CHRG_INTR_END; i++) {
 		pirq = platform_get_irq(info->pdev, i);
+		if (pirq < 0)
+			return pirq;
+
 		info->irq[i] = regmap_irq_get_virq(info->regmap_irqc, pirq);
 		if (info->irq[i] < 0) {
 			dev_warn(&info->pdev->dev,
@@ -843,7 +898,7 @@ static int axp288_charger_probe(struct platform_device *pdev)
 					NULL, axp288_charger_irq_thread_handler,
 					IRQF_ONESHOT, info->pdev->name, info);
 		if (ret) {
-			dev_err(&pdev->dev, "failed to request interrupt=%d\n",
+			dev_err(dev, "failed to request interrupt=%d\n",
 								info->irq[i]);
 			return ret;
 		}

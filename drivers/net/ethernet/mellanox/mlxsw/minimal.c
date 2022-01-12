@@ -16,6 +16,14 @@
 
 static const char mlxsw_m_driver_name[] = "mlxsw_minimal";
 
+#define MLXSW_M_FWREV_MINOR	2000
+#define MLXSW_M_FWREV_SUBMINOR	1886
+
+static const struct mlxsw_fw_rev mlxsw_m_fw_rev = {
+	.minor = MLXSW_M_FWREV_MINOR,
+	.subminor = MLXSW_M_FWREV_SUBMINOR,
+};
+
 struct mlxsw_m_port;
 
 struct mlxsw_m {
@@ -51,34 +59,38 @@ static int mlxsw_m_port_dummy_open_stop(struct net_device *dev)
 	return 0;
 }
 
-static int
-mlxsw_m_port_get_phys_port_name(struct net_device *dev, char *name, size_t len)
-{
-	struct mlxsw_m_port *mlxsw_m_port = netdev_priv(dev);
-	struct mlxsw_core *core = mlxsw_m_port->mlxsw_m->core;
-	u8 local_port = mlxsw_m_port->local_port;
-
-	return mlxsw_core_port_get_phys_port_name(core, local_port, name, len);
-}
-
-static int mlxsw_m_port_get_port_parent_id(struct net_device *dev,
-					   struct netdev_phys_item_id *ppid)
+static struct devlink_port *
+mlxsw_m_port_get_devlink_port(struct net_device *dev)
 {
 	struct mlxsw_m_port *mlxsw_m_port = netdev_priv(dev);
 	struct mlxsw_m *mlxsw_m = mlxsw_m_port->mlxsw_m;
 
-	ppid->id_len = sizeof(mlxsw_m->base_mac);
-	memcpy(&ppid->id, &mlxsw_m->base_mac, ppid->id_len);
-
-	return 0;
+	return mlxsw_core_port_devlink_port_get(mlxsw_m->core,
+						mlxsw_m_port->local_port);
 }
 
 static const struct net_device_ops mlxsw_m_port_netdev_ops = {
 	.ndo_open		= mlxsw_m_port_dummy_open_stop,
 	.ndo_stop		= mlxsw_m_port_dummy_open_stop,
-	.ndo_get_phys_port_name	= mlxsw_m_port_get_phys_port_name,
-	.ndo_get_port_parent_id	= mlxsw_m_port_get_port_parent_id,
+	.ndo_get_devlink_port	= mlxsw_m_port_get_devlink_port,
 };
+
+static void mlxsw_m_module_get_drvinfo(struct net_device *dev,
+				       struct ethtool_drvinfo *drvinfo)
+{
+	struct mlxsw_m_port *mlxsw_m_port = netdev_priv(dev);
+	struct mlxsw_m *mlxsw_m = mlxsw_m_port->mlxsw_m;
+
+	strlcpy(drvinfo->driver, mlxsw_m->bus_info->device_kind,
+		sizeof(drvinfo->driver));
+	snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
+		 "%d.%d.%d",
+		 mlxsw_m->bus_info->fw_rev.major,
+		 mlxsw_m->bus_info->fw_rev.minor,
+		 mlxsw_m->bus_info->fw_rev.subminor);
+	strlcpy(drvinfo->bus_info, mlxsw_m->bus_info->device_name,
+		sizeof(drvinfo->bus_info));
+}
 
 static int mlxsw_m_get_module_info(struct net_device *netdev,
 				   struct ethtool_modinfo *modinfo)
@@ -100,9 +112,23 @@ mlxsw_m_get_module_eeprom(struct net_device *netdev, struct ethtool_eeprom *ee,
 					   ee, data);
 }
 
+static int
+mlxsw_m_get_module_eeprom_by_page(struct net_device *netdev,
+				  const struct ethtool_module_eeprom *page,
+				  struct netlink_ext_ack *extack)
+{
+	struct mlxsw_m_port *mlxsw_m_port = netdev_priv(netdev);
+	struct mlxsw_core *core = mlxsw_m_port->mlxsw_m->core;
+
+	return mlxsw_env_get_module_eeprom_by_page(core, mlxsw_m_port->module,
+						   page, extack);
+}
+
 static const struct ethtool_ops mlxsw_m_port_ethtool_ops = {
+	.get_drvinfo		= mlxsw_m_module_get_drvinfo,
 	.get_module_info	= mlxsw_m_get_module_info,
 	.get_module_eeprom	= mlxsw_m_get_module_eeprom,
+	.get_module_eeprom_by_page = mlxsw_m_get_module_eeprom_by_page,
 };
 
 static int
@@ -150,7 +176,10 @@ mlxsw_m_port_create(struct mlxsw_m *mlxsw_m, u8 local_port, u8 module)
 	struct net_device *dev;
 	int err;
 
-	err = mlxsw_core_port_init(mlxsw_m->core, local_port);
+	err = mlxsw_core_port_init(mlxsw_m->core, local_port,
+				   module + 1, false, 0, false,
+				   0, mlxsw_m->base_mac,
+				   sizeof(mlxsw_m->base_mac));
 	if (err) {
 		dev_err(mlxsw_m->bus_info->dev, "Port %d: Failed to init core port\n",
 			local_port);
@@ -164,6 +193,7 @@ mlxsw_m_port_create(struct mlxsw_m *mlxsw_m, u8 local_port, u8 module)
 	}
 
 	SET_NETDEV_DEV(dev, mlxsw_m->bus_info->dev);
+	dev_net_set(dev, mlxsw_core_net(mlxsw_m->core));
 	mlxsw_m_port = netdev_priv(dev);
 	mlxsw_m_port->dev = dev;
 	mlxsw_m_port->mlxsw_m = mlxsw_m;
@@ -190,14 +220,14 @@ mlxsw_m_port_create(struct mlxsw_m *mlxsw_m, u8 local_port, u8 module)
 	}
 
 	mlxsw_core_port_eth_set(mlxsw_m->core, mlxsw_m_port->local_port,
-				mlxsw_m_port, dev, module + 1, false, 0);
+				mlxsw_m_port, dev);
 
 	return 0;
 
 err_register_netdev:
 	mlxsw_m->ports[local_port] = NULL;
-	free_netdev(dev);
 err_dev_addr_get:
+	free_netdev(dev);
 err_alloc_etherdev:
 	mlxsw_core_port_fini(mlxsw_m->core, local_port);
 	return err;
@@ -217,6 +247,7 @@ static void mlxsw_m_port_remove(struct mlxsw_m *mlxsw_m, u8 local_port)
 static int mlxsw_m_port_module_map(struct mlxsw_m *mlxsw_m, u8 local_port,
 				   u8 *last_module)
 {
+	unsigned int max_ports = mlxsw_core_max_ports(mlxsw_m->core);
 	u8 module, width;
 	int err;
 
@@ -232,6 +263,9 @@ static int mlxsw_m_port_module_map(struct mlxsw_m *mlxsw_m, u8 local_port,
 	if (module == *last_module)
 		return 0;
 	*last_module = module;
+
+	if (WARN_ON_ONCE(module >= max_ports))
+		return -EINVAL;
 	mlxsw_m->module_to_port[module] = ++mlxsw_m->max_ports;
 
 	return 0;
@@ -274,7 +308,8 @@ static int mlxsw_m_ports_create(struct mlxsw_m *mlxsw_m)
 
 	/* Create port objects for each valid entry */
 	for (i = 0; i < mlxsw_m->max_ports; i++) {
-		if (mlxsw_m->module_to_port[i] > 0) {
+		if (mlxsw_m->module_to_port[i] > 0 &&
+		    !mlxsw_core_port_is_xm(mlxsw_m->core, i)) {
 			err = mlxsw_m_port_create(mlxsw_m,
 						  mlxsw_m->module_to_port[i],
 						  i);
@@ -317,14 +352,37 @@ static void mlxsw_m_ports_remove(struct mlxsw_m *mlxsw_m)
 	kfree(mlxsw_m->ports);
 }
 
+static int mlxsw_m_fw_rev_validate(struct mlxsw_m *mlxsw_m)
+{
+	const struct mlxsw_fw_rev *rev = &mlxsw_m->bus_info->fw_rev;
+
+	/* Validate driver and FW are compatible.
+	 * Do not check major version, since it defines chip type, while
+	 * driver is supposed to support any type.
+	 */
+	if (mlxsw_core_fw_rev_minor_subminor_validate(rev, &mlxsw_m_fw_rev))
+		return 0;
+
+	dev_err(mlxsw_m->bus_info->dev, "The firmware version %d.%d.%d is incompatible with the driver (required >= %d.%d.%d)\n",
+		rev->major, rev->minor, rev->subminor, rev->major,
+		mlxsw_m_fw_rev.minor, mlxsw_m_fw_rev.subminor);
+
+	return -EINVAL;
+}
+
 static int mlxsw_m_init(struct mlxsw_core *mlxsw_core,
-			const struct mlxsw_bus_info *mlxsw_bus_info)
+			const struct mlxsw_bus_info *mlxsw_bus_info,
+			struct netlink_ext_ack *extack)
 {
 	struct mlxsw_m *mlxsw_m = mlxsw_core_driver_priv(mlxsw_core);
 	int err;
 
 	mlxsw_m->core = mlxsw_core;
 	mlxsw_m->bus_info = mlxsw_bus_info;
+
+	err = mlxsw_m_fw_rev_validate(mlxsw_m);
+	if (err)
+		return err;
 
 	err = mlxsw_m_base_mac_get(mlxsw_m);
 	if (err) {

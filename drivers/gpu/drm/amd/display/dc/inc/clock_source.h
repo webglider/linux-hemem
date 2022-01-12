@@ -167,9 +167,14 @@ struct clock_source_funcs {
 			struct pixel_clk_params *,
 			struct pll_settings *);
 	bool (*get_pixel_clk_frequency_100hz)(
-			struct clock_source *clock_source,
+			const struct clock_source *clock_source,
 			unsigned int inst,
 			unsigned int *pixel_clk_khz);
+	bool (*override_dp_pix_clk)(
+			struct clock_source *clock_source,
+			unsigned int inst,
+			unsigned int pixel_clk,
+			unsigned int ref_clk);
 };
 
 struct clock_source {

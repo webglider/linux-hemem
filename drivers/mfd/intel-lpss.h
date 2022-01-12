@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Intel LPSS core support.
  *
@@ -5,10 +6,6 @@
  *
  * Authors: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
  *          Mika Westerberg <mika.westerberg@linux.intel.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #ifndef __MFD_INTEL_LPSS_H
@@ -18,14 +15,14 @@
 
 struct device;
 struct resource;
-struct property_entry;
+struct software_node;
 
 struct intel_lpss_platform_info {
 	struct resource *mem;
 	int irq;
 	unsigned long clk_rate;
 	const char *clk_con_id;
-	struct property_entry *properties;
+	const struct software_node *swnode;
 };
 
 int intel_lpss_probe(struct device *dev,

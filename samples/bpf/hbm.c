@@ -16,6 +16,7 @@
  *    -l	Also limit flows doing loopback
  *    -n <#>	To create cgroup \"/hbm#\" and attach prog
  *		Default is /hbm1
+ *    --no_cn   Do not return cn notifications
  *    -r <rate>	Rate limit in Mbps
  *    -s	Get HBM stats (marked, dropped, etc.)
  *    -t <time>	Exit after specified seconds (default is 0)
@@ -39,17 +40,17 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/unistd.h>
+#include <linux/compiler.h>
 
 #include <linux/bpf.h>
 #include <bpf/bpf.h>
+#include <getopt.h>
 
-#include "bpf_load.h"
 #include "bpf_rlimit.h"
 #include "cgroup_helpers.h"
 #include "hbm.h"
 #include "bpf_util.h"
-#include "bpf/bpf.h"
-#include "bpf/libbpf.h"
+#include <bpf/libbpf.h>
 
 bool outFlag = true;
 int minRate = 1000;		/* cgroup rate limit in Mbps */
@@ -59,6 +60,8 @@ bool stats_flag;
 bool loopback_flag;
 bool debugFlag;
 bool work_conserving_flag;
+bool no_cn_flag;
+bool edt_flag;
 
 static void Usage(void);
 static void read_trace_pipe2(void);
@@ -66,9 +69,9 @@ static void do_error(char *msg, bool errno_flag);
 
 #define DEBUGFS "/sys/kernel/debug/tracing/"
 
-struct bpf_object *obj;
-int bpfprog_fd;
-int cgroup_storage_fd;
+static struct bpf_program *bpf_prog;
+static struct bpf_object *obj;
+static int queue_stats_fd;
 
 static void read_trace_pipe2(void)
 {
@@ -117,56 +120,50 @@ static void do_error(char *msg, bool errno_flag)
 
 static int prog_load(char *prog)
 {
-	struct bpf_prog_load_attr prog_load_attr = {
-		.prog_type = BPF_PROG_TYPE_CGROUP_SKB,
-		.file = prog,
-		.expected_attach_type = BPF_CGROUP_INET_EGRESS,
-	};
-	int map_fd;
-	struct bpf_map *map;
-
-	int ret = 0;
-
-	if (access(prog, O_RDONLY) < 0) {
-		printf("Error accessing file %s: %s\n", prog, strerror(errno));
+	obj = bpf_object__open_file(prog, NULL);
+	if (libbpf_get_error(obj)) {
+		printf("ERROR: opening BPF object file failed\n");
 		return 1;
 	}
-	if (bpf_prog_load_xattr(&prog_load_attr, &obj, &bpfprog_fd))
-		ret = 1;
-	if (!ret) {
-		map = bpf_object__find_map_by_name(obj, "queue_stats");
-		map_fd = bpf_map__fd(map);
-		if (map_fd < 0) {
-			printf("Map not found: %s\n", strerror(map_fd));
-			ret = 1;
-		}
+
+	/* load BPF program */
+	if (bpf_object__load(obj)) {
+		printf("ERROR: loading BPF object file failed\n");
+		goto err;
 	}
 
-	if (ret) {
-		printf("ERROR: load_bpf_file failed for: %s\n", prog);
-		printf("  Output from verifier:\n%s\n------\n", bpf_log_buf);
-		ret = -1;
-	} else {
-		ret = map_fd;
+	bpf_prog = bpf_object__find_program_by_title(obj, "cgroup_skb/egress");
+	if (!bpf_prog) {
+		printf("ERROR: finding a prog in obj file failed\n");
+		goto err;
 	}
 
-	return ret;
+	queue_stats_fd = bpf_object__find_map_fd_by_name(obj, "queue_stats");
+	if (queue_stats_fd < 0) {
+		printf("ERROR: finding a map in obj file failed\n");
+		goto err;
+	}
+
+	return 0;
+
+err:
+	bpf_object__close(obj);
+	return 1;
 }
 
 static int run_bpf_prog(char *prog, int cg_id)
 {
-	int map_fd;
-	int rc = 0;
+	struct hbm_queue_stats qstats = {0};
+	char cg_dir[100], cg_pin_path[100];
+	struct bpf_link *link = NULL;
 	int key = 0;
 	int cg1 = 0;
-	int type = BPF_CGROUP_INET_EGRESS;
-	char cg_dir[100];
-	struct hbm_queue_stats qstats = {0};
+	int rc = 0;
 
 	sprintf(cg_dir, "/hbm%d", cg_id);
-	map_fd = prog_load(prog);
-	if (map_fd  == -1)
-		return 1;
+	rc = prog_load(prog);
+	if (rc != 0)
+		return rc;
 
 	if (setup_cgroup_environment()) {
 		printf("ERROR: setting cgroup environment\n");
@@ -185,16 +182,25 @@ static int run_bpf_prog(char *prog, int cg_id)
 	qstats.rate = rate;
 	qstats.stats = stats_flag ? 1 : 0;
 	qstats.loopback = loopback_flag ? 1 : 0;
-	if (bpf_map_update_elem(map_fd, &key, &qstats, BPF_ANY)) {
+	qstats.no_cn = no_cn_flag ? 1 : 0;
+	if (bpf_map_update_elem(queue_stats_fd, &key, &qstats, BPF_ANY)) {
 		printf("ERROR: Could not update map element\n");
 		goto err;
 	}
 
 	if (!outFlag)
-		type = BPF_CGROUP_INET_INGRESS;
-	if (bpf_prog_attach(bpfprog_fd, cg1, type, 0)) {
-		printf("ERROR: bpf_prog_attach fails!\n");
-		log_err("Attaching prog");
+		bpf_program__set_expected_attach_type(bpf_prog, BPF_CGROUP_INET_INGRESS);
+
+	link = bpf_program__attach_cgroup(bpf_prog, cg1);
+	if (libbpf_get_error(link)) {
+		fprintf(stderr, "ERROR: bpf_program__attach_cgroup failed\n");
+		goto err;
+	}
+
+	sprintf(cg_pin_path, "/sys/fs/bpf/hbm%d", cg_id);
+	rc = bpf_link__pin(link, cg_pin_path);
+	if (rc < 0) {
+		printf("ERROR: bpf_link__pin failed: %d\n", rc);
 		goto err;
 	}
 
@@ -208,7 +214,7 @@ static int run_bpf_prog(char *prog, int cg_id)
 #define DELTA_RATE_CHECK 10000		/* in us */
 #define RATE_THRESHOLD 9500000000	/* 9.5 Gbps */
 
-		bpf_map_lookup_elem(map_fd, &key, &qstats);
+		bpf_map_lookup_elem(queue_stats_fd, &key, &qstats);
 		if (gettimeofday(&t0, NULL) < 0)
 			do_error("gettimeofday failed", true);
 		t_last = t0;
@@ -237,7 +243,7 @@ static int run_bpf_prog(char *prog, int cg_id)
 			fclose(fin);
 			printf("  new_eth_tx_bytes:%llu\n",
 			       new_eth_tx_bytes);
-			bpf_map_lookup_elem(map_fd, &key, &qstats);
+			bpf_map_lookup_elem(queue_stats_fd, &key, &qstats);
 			new_cg_tx_bytes = qstats.bytes_total;
 			delta_bytes = new_eth_tx_bytes - last_eth_tx_bytes;
 			last_eth_tx_bytes = new_eth_tx_bytes;
@@ -284,14 +290,14 @@ static int run_bpf_prog(char *prog, int cg_id)
 					rate = minRate;
 				qstats.rate = rate;
 			}
-			if (bpf_map_update_elem(map_fd, &key, &qstats, BPF_ANY))
+			if (bpf_map_update_elem(queue_stats_fd, &key, &qstats, BPF_ANY))
 				do_error("update map element fails", false);
 		}
 	} else {
 		sleep(dur);
 	}
 	// Get stats!
-	if (stats_flag && bpf_map_lookup_elem(map_fd, &key, &qstats)) {
+	if (stats_flag && bpf_map_lookup_elem(queue_stats_fd, &key, &qstats)) {
 		char fname[100];
 		FILE *fout;
 
@@ -312,6 +318,14 @@ static int run_bpf_prog(char *prog, int cg_id)
 		double percent_pkts, percent_bytes;
 		char fname[100];
 		FILE *fout;
+		int k;
+		static const char *returnValNames[] = {
+			"DROP_PKT",
+			"ALLOW_PKT",
+			"DROP_PKT_CWR",
+			"ALLOW_PKT_CWR"
+		};
+#define RET_VAL_COUNT 4
 
 // Future support of ingress
 //		if (!outFlag)
@@ -346,19 +360,55 @@ static int run_bpf_prog(char *prog, int cg_id)
 			(qstats.bytes_total + 1);
 		fprintf(fout, "pkts_dropped_percent:%6.2f\n", percent_pkts);
 		fprintf(fout, "bytes_dropped_percent:%6.2f\n", percent_bytes);
+
+		// ECN CE markings
+		percent_pkts = (qstats.pkts_ecn_ce * 100.0) /
+			(qstats.pkts_total + 1);
+		fprintf(fout, "pkts_ecn_ce:%6.2f (%d)\n", percent_pkts,
+			(int)qstats.pkts_ecn_ce);
+
+		// Average cwnd
+		fprintf(fout, "avg cwnd:%d\n",
+			(int)(qstats.sum_cwnd / (qstats.sum_cwnd_cnt + 1)));
+		// Average rtt
+		fprintf(fout, "avg rtt:%d\n",
+			(int)(qstats.sum_rtt / (qstats.pkts_total + 1)));
+		// Average credit
+		if (edt_flag)
+			fprintf(fout, "avg credit_ms:%.03f\n",
+				(qstats.sum_credit /
+				 (qstats.pkts_total + 1.0)) / 1000000.0);
+		else
+			fprintf(fout, "avg credit:%d\n",
+				(int)(qstats.sum_credit /
+				      (1500 * ((int)qstats.pkts_total ) + 1)));
+
+		// Return values stats
+		for (k = 0; k < RET_VAL_COUNT; k++) {
+			percent_pkts = (qstats.returnValCount[k] * 100.0) /
+				(qstats.pkts_total + 1);
+			fprintf(fout, "%s:%6.2f (%d)\n", returnValNames[k],
+				percent_pkts, (int)qstats.returnValCount[k]);
+		}
 		fclose(fout);
 	}
 
 	if (debugFlag)
 		read_trace_pipe2();
-	return rc;
+	goto cleanup;
+
 err:
 	rc = 1;
 
-	if (cg1)
-		close(cg1);
-	cleanup_cgroup_environment();
+cleanup:
+	bpf_link__destroy(link);
+	bpf_object__close(obj);
 
+	if (cg1 != -1)
+		close(cg1);
+
+	if (rc != 0)
+		cleanup_cgroup_environment();
 	return rc;
 }
 
@@ -366,14 +416,16 @@ static void Usage(void)
 {
 	printf("This program loads a cgroup skb BPF program to enforce\n"
 	       "cgroup output (egress) bandwidth limits.\n\n"
-	       "USAGE: hbm [-o] [-d]  [-l] [-n <id>] [-r <rate>] [-s]\n"
-	       "           [-t <secs>] [-w] [-h] [prog]\n"
+	       "USAGE: hbm [-o] [-d]  [-l] [-n <id>] [--no_cn] [-r <rate>]\n"
+	       "           [-s] [-t <secs>] [-w] [-h] [prog]\n"
 	       "  Where:\n"
 	       "    -o         indicates egress direction (default)\n"
 	       "    -d         print BPF trace debug buffer\n"
+	       "    --edt      use fq's Earliest Departure Time\n"
 	       "    -l         also limit flows using loopback\n"
 	       "    -n <#>     to create cgroup \"/hbm#\" and attach prog\n"
 	       "               Default is /hbm1\n"
+	       "    --no_cn    disable CN notifications\n"
 	       "    -r <rate>  Rate in Mbps\n"
 	       "    -s         Update HBM stats\n"
 	       "    -t <time>  Exit after specified seconds (default is 0)\n"
@@ -393,9 +445,21 @@ int main(int argc, char **argv)
 	int  k;
 	int cg_id = 1;
 	char *optstring = "iodln:r:st:wh";
+	struct option loptions[] = {
+		{"no_cn", 0, NULL, 1},
+		{"edt", 0, NULL, 2},
+		{NULL, 0, NULL, 0}
+	};
 
-	while ((k = getopt(argc, argv, optstring)) != -1) {
+	while ((k = getopt_long(argc, argv, optstring, loptions, NULL)) != -1) {
 		switch (k) {
+		case 1:
+			no_cn_flag = true;
+			break;
+		case 2:
+			prog = "hbm_edt_kern.o";
+			edt_flag = true;
+			break;
 		case'o':
 			break;
 		case 'd':
@@ -426,7 +490,7 @@ int main(int argc, char **argv)
 					"Option -%c requires an argument.\n\n",
 					optopt);
 		case 'h':
-			// fallthrough
+			__fallthrough;
 		default:
 			Usage();
 			return 0;

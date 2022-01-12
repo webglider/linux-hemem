@@ -36,7 +36,7 @@ static int imgu_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	/* Initialize try_fmt */
 	for (i = 0; i < IMGU_NODE_NUM; i++) {
 		struct v4l2_mbus_framefmt *try_fmt =
-			v4l2_subdev_get_try_format(sd, fh->pad, i);
+			v4l2_subdev_get_try_format(sd, fh->state, i);
 
 		try_fmt->width = try_crop.width;
 		try_fmt->height = try_crop.height;
@@ -44,8 +44,8 @@ static int imgu_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 		try_fmt->field = V4L2_FIELD_NONE;
 	}
 
-	*v4l2_subdev_get_try_crop(sd, fh->pad, IMGU_NODE_IN) = try_crop;
-	*v4l2_subdev_get_try_compose(sd, fh->pad, IMGU_NODE_IN) = try_crop;
+	*v4l2_subdev_get_try_crop(sd, fh->state, IMGU_NODE_IN) = try_crop;
+	*v4l2_subdev_get_try_compose(sd, fh->state, IMGU_NODE_IN) = try_crop;
 
 	return 0;
 }
@@ -66,7 +66,7 @@ static int imgu_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 	struct imgu_css_pipe *css_pipe = &imgu->css.pipes[pipe];
 	struct imgu_media_pipe *imgu_pipe = &imgu->imgu_pipe[pipe];
 
-	dev_dbg(dev, "%s %d for pipe %d", __func__, enable, pipe);
+	dev_dbg(dev, "%s %d for pipe %u", __func__, enable, pipe);
 	/* grab ctrl after streamon and return after off */
 	v4l2_ctrl_grab(imgu_sd->ctrl, enable);
 
@@ -101,7 +101,7 @@ static int imgu_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 	else
 		css_pipe->pipe_id = IPU3_CSS_PIPE_ID_CAPTURE;
 
-	dev_dbg(dev, "IPU3 pipe %d pipe_id %d", pipe, css_pipe->pipe_id);
+	dev_dbg(dev, "IPU3 pipe %u pipe_id %u", pipe, css_pipe->pipe_id);
 
 	rects[IPU3_CSS_RECT_EFFECTIVE] = &imgu_sd->rect.eff;
 	rects[IPU3_CSS_RECT_BDS] = &imgu_sd->rect.bds;
@@ -109,7 +109,7 @@ static int imgu_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 
 	r = imgu_css_fmt_set(&imgu->css, fmts, rects, pipe);
 	if (r) {
-		dev_err(dev, "failed to set initial formats pipe %d with (%d)",
+		dev_err(dev, "failed to set initial formats pipe %u with (%d)",
 			pipe, r);
 		return r;
 	}
@@ -120,7 +120,7 @@ static int imgu_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 }
 
 static int imgu_subdev_get_fmt(struct v4l2_subdev *sd,
-			       struct v4l2_subdev_pad_config *cfg,
+			       struct v4l2_subdev_state *sd_state,
 			       struct v4l2_subdev_format *fmt)
 {
 	struct imgu_device *imgu = v4l2_get_subdevdata(sd);
@@ -136,7 +136,7 @@ static int imgu_subdev_get_fmt(struct v4l2_subdev *sd,
 	if (fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
 		fmt->format = imgu_pipe->nodes[pad].pad_fmt;
 	} else {
-		mf = v4l2_subdev_get_try_format(sd, cfg, pad);
+		mf = v4l2_subdev_get_try_format(sd, sd_state, pad);
 		fmt->format = *mf;
 	}
 
@@ -144,7 +144,7 @@ static int imgu_subdev_get_fmt(struct v4l2_subdev *sd,
 }
 
 static int imgu_subdev_set_fmt(struct v4l2_subdev *sd,
-			       struct v4l2_subdev_pad_config *cfg,
+			       struct v4l2_subdev_state *sd_state,
 			       struct v4l2_subdev_format *fmt)
 {
 	struct imgu_media_pipe *imgu_pipe;
@@ -152,17 +152,16 @@ static int imgu_subdev_set_fmt(struct v4l2_subdev *sd,
 	struct imgu_v4l2_subdev *imgu_sd = container_of(sd,
 							struct imgu_v4l2_subdev,
 							subdev);
-
 	struct v4l2_mbus_framefmt *mf;
 	u32 pad = fmt->pad;
 	unsigned int pipe = imgu_sd->pipe;
 
-	dev_dbg(&imgu->pci_dev->dev, "set subdev %d pad %d fmt to [%dx%d]",
+	dev_dbg(&imgu->pci_dev->dev, "set subdev %u pad %u fmt to [%ux%u]",
 		pipe, pad, fmt->format.width, fmt->format.height);
 
 	imgu_pipe = &imgu->imgu_pipe[pipe];
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
-		mf = v4l2_subdev_get_try_format(sd, cfg, pad);
+		mf = v4l2_subdev_get_try_format(sd, sd_state, pad);
 	else
 		mf = &imgu_pipe->nodes[pad].pad_fmt;
 
@@ -190,7 +189,7 @@ static int imgu_subdev_set_fmt(struct v4l2_subdev *sd,
 }
 
 static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
-				     struct v4l2_subdev_pad_config *cfg,
+				     struct v4l2_subdev_state *sd_state,
 				     struct v4l2_subdev_selection *sel)
 {
 	struct v4l2_rect *try_sel, *r;
@@ -203,11 +202,11 @@ static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
 
 	switch (sel->target) {
 	case V4L2_SEL_TGT_CROP:
-		try_sel = v4l2_subdev_get_try_crop(sd, cfg, sel->pad);
+		try_sel = v4l2_subdev_get_try_crop(sd, sd_state, sel->pad);
 		r = &imgu_sd->rect.eff;
 		break;
 	case V4L2_SEL_TGT_COMPOSE:
-		try_sel = v4l2_subdev_get_try_compose(sd, cfg, sel->pad);
+		try_sel = v4l2_subdev_get_try_compose(sd, sd_state, sel->pad);
 		r = &imgu_sd->rect.bds;
 		break;
 	default:
@@ -223,7 +222,7 @@ static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
 }
 
 static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
-				     struct v4l2_subdev_pad_config *cfg,
+				     struct v4l2_subdev_state *sd_state,
 				     struct v4l2_subdev_selection *sel)
 {
 	struct imgu_device *imgu = v4l2_get_subdevdata(sd);
@@ -233,7 +232,7 @@ static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
 	struct v4l2_rect *rect, *try_sel;
 
 	dev_dbg(&imgu->pci_dev->dev,
-		 "set subdev %d sel which %d target 0x%4x rect [%dx%d]",
+		 "set subdev %u sel which %u target 0x%4x rect [%ux%u]",
 		 imgu_sd->pipe, sel->which, sel->target,
 		 sel->r.width, sel->r.height);
 
@@ -242,11 +241,11 @@ static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
 
 	switch (sel->target) {
 	case V4L2_SEL_TGT_CROP:
-		try_sel = v4l2_subdev_get_try_crop(sd, cfg, sel->pad);
+		try_sel = v4l2_subdev_get_try_crop(sd, sd_state, sel->pad);
 		rect = &imgu_sd->rect.eff;
 		break;
 	case V4L2_SEL_TGT_COMPOSE:
-		try_sel = v4l2_subdev_get_try_compose(sd, cfg, sel->pad);
+		try_sel = v4l2_subdev_get_try_compose(sd, sd_state, sel->pad);
 		rect = &imgu_sd->rect.bds;
 		break;
 	default:
@@ -279,7 +278,7 @@ static int imgu_link_setup(struct media_entity *entity,
 
 	WARN_ON(pad >= IMGU_NODE_NUM);
 
-	dev_dbg(&imgu->pci_dev->dev, "pipe %d pad %d is %s", pipe, pad,
+	dev_dbg(&imgu->pci_dev->dev, "pipe %u pad %u is %s", pipe, pad,
 		 flags & MEDIA_LNK_FL_ENABLED ? "enabled" : "disabled");
 
 	imgu_pipe = &imgu->imgu_pipe[pipe];
@@ -294,7 +293,7 @@ static int imgu_link_setup(struct media_entity *entity,
 	else
 		__clear_bit(pipe, imgu->css.enabled_pipes);
 
-	dev_dbg(&imgu->pci_dev->dev, "pipe %d is %s", pipe,
+	dev_dbg(&imgu->pci_dev->dev, "pipe %u is %s", pipe,
 		 flags & MEDIA_LNK_FL_ENABLED ? "enabled" : "disabled");
 
 	return 0;
@@ -341,8 +340,10 @@ static void imgu_vb2_buf_queue(struct vb2_buffer *vb)
 	struct imgu_video_device *node =
 		container_of(vb->vb2_queue, struct imgu_video_device, vbq);
 	unsigned int queue = imgu_node_to_queue(node->id);
+	struct imgu_buffer *buf = container_of(vb, struct imgu_buffer,
+					       vid_buf.vbb.vb2_buf);
 	unsigned long need_bytes;
-	unsigned int pipe = node->pipe;
+	unsigned long payload = vb2_get_plane_payload(vb, 0);
 
 	if (vb->vb2_queue->type == V4L2_BUF_TYPE_META_CAPTURE ||
 	    vb->vb2_queue->type == V4L2_BUF_TYPE_META_OUTPUT)
@@ -350,42 +351,28 @@ static void imgu_vb2_buf_queue(struct vb2_buffer *vb)
 	else
 		need_bytes = node->vdev_fmt.fmt.pix_mp.plane_fmt[0].sizeimage;
 
-	if (queue == IPU3_CSS_QUEUE_PARAMS) {
-		unsigned long payload = vb2_get_plane_payload(vb, 0);
-		struct vb2_v4l2_buffer *buf =
-			container_of(vb, struct vb2_v4l2_buffer, vb2_buf);
-		int r = -EINVAL;
-
-		if (payload == 0) {
-			payload = need_bytes;
-			vb2_set_plane_payload(vb, 0, payload);
-		}
-		if (payload >= need_bytes)
-			r = imgu_css_set_parameters(&imgu->css, pipe,
-						    vb2_plane_vaddr(vb, 0));
-		buf->flags = V4L2_BUF_FLAG_DONE;
-		vb2_buffer_done(vb, r == 0 ? VB2_BUF_STATE_DONE
-					   : VB2_BUF_STATE_ERROR);
-
-	} else {
-		struct imgu_buffer *buf = container_of(vb, struct imgu_buffer,
-						       vid_buf.vbb.vb2_buf);
-
-		mutex_lock(&imgu->lock);
-		imgu_css_buf_init(&buf->css_buf, queue, buf->map.daddr);
-		list_add_tail(&buf->vid_buf.list,
-			      &node->buffers);
-		mutex_unlock(&imgu->lock);
-
-		vb2_set_plane_payload(&buf->vid_buf.vbb.vb2_buf, 0, need_bytes);
-
-		if (imgu->streaming)
-			imgu_queue_buffers(imgu, false, pipe);
+	if (queue == IPU3_CSS_QUEUE_PARAMS && payload && payload < need_bytes) {
+		dev_err(&imgu->pci_dev->dev, "invalid data size for params.");
+		vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
+		return;
 	}
 
-	dev_dbg(&imgu->pci_dev->dev, "%s for pipe %d node %d", __func__,
-		node->pipe, node->id);
+	mutex_lock(&imgu->lock);
+	if (queue != IPU3_CSS_QUEUE_PARAMS)
+		imgu_css_buf_init(&buf->css_buf, queue, buf->map.daddr);
 
+	list_add_tail(&buf->vid_buf.list, &node->buffers);
+	mutex_unlock(&imgu->lock);
+
+	vb2_set_plane_payload(vb, 0, need_bytes);
+
+	mutex_lock(&imgu->streaming_lock);
+	if (imgu->streaming)
+		imgu_queue_buffers(imgu, false, node->pipe);
+	mutex_unlock(&imgu->streaming_lock);
+
+	dev_dbg(&imgu->pci_dev->dev, "%s for pipe %u node %u", __func__,
+		node->pipe, node->id);
 }
 
 static int imgu_vb2_queue_setup(struct vb2_queue *vq,
@@ -435,7 +422,7 @@ static bool imgu_all_nodes_streaming(struct imgu_device *imgu,
 	pipe = except->pipe;
 	if (!test_bit(pipe, imgu->css.enabled_pipes)) {
 		dev_warn(&imgu->pci_dev->dev,
-			 "pipe %d link is not ready yet", pipe);
+			 "pipe %u link is not ready yet", pipe);
 		return false;
 	}
 
@@ -479,13 +466,16 @@ static int imgu_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
 	int r;
 	unsigned int pipe;
 
-	dev_dbg(dev, "%s node name %s pipe %d id %u", __func__,
+	dev_dbg(dev, "%s node name %s pipe %u id %u", __func__,
 		node->name, node->pipe, node->id);
 
+	mutex_lock(&imgu->streaming_lock);
 	if (imgu->streaming) {
 		r = -EBUSY;
+		mutex_unlock(&imgu->streaming_lock);
 		goto fail_return_bufs;
 	}
+	mutex_unlock(&imgu->streaming_lock);
 
 	if (!node->enabled) {
 		dev_err(dev, "IMGU node is not enabled");
@@ -499,7 +489,6 @@ static int imgu_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
 	if (r < 0)
 		goto fail_return_bufs;
 
-
 	if (!imgu_all_nodes_streaming(imgu, node))
 		return 0;
 
@@ -512,9 +501,11 @@ static int imgu_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
 
 	/* Start streaming of the whole pipeline now */
 	dev_dbg(dev, "IMGU streaming is ready to start");
+	mutex_lock(&imgu->streaming_lock);
 	r = imgu_s_stream(imgu, true);
 	if (!r)
 		imgu->streaming = true;
+	mutex_unlock(&imgu->streaming_lock);
 
 	return 0;
 
@@ -539,13 +530,14 @@ static void imgu_vb2_stop_streaming(struct vb2_queue *vq)
 	WARN_ON(!node->enabled);
 
 	pipe = node->pipe;
-	dev_dbg(dev, "Try to stream off node [%d][%d]", pipe, node->id);
+	dev_dbg(dev, "Try to stream off node [%u][%u]", pipe, node->id);
 	imgu_pipe = &imgu->imgu_pipe[pipe];
 	r = v4l2_subdev_call(&imgu_pipe->imgu_sd.subdev, video, s_stream, 0);
 	if (r)
 		dev_err(&imgu->pci_dev->dev,
 			"failed to stop subdev streaming\n");
 
+	mutex_lock(&imgu->streaming_lock);
 	/* Was this the first node with streaming disabled? */
 	if (imgu->streaming && imgu_all_nodes_streaming(imgu, node)) {
 		/* Yes, really stop streaming now */
@@ -556,6 +548,8 @@ static void imgu_vb2_stop_streaming(struct vb2_queue *vq)
 	}
 
 	imgu_return_all_buffers(imgu, node, VB2_BUF_STATE_ERROR);
+	mutex_unlock(&imgu->streaming_lock);
+
 	media_pipeline_stop(&node->vdev.entity);
 }
 
@@ -611,6 +605,9 @@ static int enum_fmts(struct v4l2_fmtdesc *f, u32 type)
 {
 	unsigned int i, j;
 
+	if (f->mbus_code != 0 && f->mbus_code != MEDIA_BUS_FMT_FIXED)
+		return -EINVAL;
+
 	for (i = j = 0; i < ARRAY_SIZE(formats); ++i) {
 		if (formats[i].type == type) {
 			if (j == f->index)
@@ -664,20 +661,19 @@ static int imgu_fmt(struct imgu_device *imgu, unsigned int pipe, int node,
 		    struct v4l2_format *f, bool try)
 {
 	struct device *dev = &imgu->pci_dev->dev;
-	struct v4l2_pix_format_mplane try_fmts[IPU3_CSS_QUEUES];
 	struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES] = { NULL };
 	struct v4l2_rect *rects[IPU3_CSS_RECTS] = { NULL };
 	struct v4l2_mbus_framefmt pad_fmt;
 	unsigned int i, css_q;
-	int r;
+	int ret;
 	struct imgu_css_pipe *css_pipe = &imgu->css.pipes[pipe];
 	struct imgu_media_pipe *imgu_pipe = &imgu->imgu_pipe[pipe];
 	struct imgu_v4l2_subdev *imgu_sd = &imgu_pipe->imgu_sd;
 
-	dev_dbg(dev, "set fmt node [%u][%u](try = %d)", pipe, node, try);
+	dev_dbg(dev, "set fmt node [%u][%u](try = %u)", pipe, node, try);
 
 	for (i = 0; i < IMGU_NODE_NUM; i++)
-		dev_dbg(dev, "IMGU pipe %d node %d enabled = %d",
+		dev_dbg(dev, "IMGU pipe %u node %u enabled = %u",
 			pipe, i, imgu_pipe->nodes[i].enabled);
 
 	if (imgu_pipe->nodes[IMGU_NODE_VF].enabled)
@@ -688,8 +684,9 @@ static int imgu_fmt(struct imgu_device *imgu, unsigned int pipe, int node,
 	else
 		css_pipe->pipe_id = IPU3_CSS_PIPE_ID_CAPTURE;
 
-	dev_dbg(dev, "IPU3 pipe %d pipe_id = %d", pipe, css_pipe->pipe_id);
+	dev_dbg(dev, "IPU3 pipe %u pipe_id = %u", pipe, css_pipe->pipe_id);
 
+	css_q = imgu_node_to_queue(node);
 	for (i = 0; i < IPU3_CSS_QUEUES; i++) {
 		unsigned int inode = imgu_map_node(imgu, i);
 
@@ -697,18 +694,30 @@ static int imgu_fmt(struct imgu_device *imgu, unsigned int pipe, int node,
 		if (inode == IMGU_NODE_STAT_3A || inode == IMGU_NODE_PARAMS)
 			continue;
 
+		/* CSS expects some format on OUT queue */
+		if (i != IPU3_CSS_QUEUE_OUT &&
+		    !imgu_pipe->nodes[inode].enabled) {
+			fmts[i] = NULL;
+			continue;
+		}
+
+		if (i == css_q) {
+			fmts[i] = &f->fmt.pix_mp;
+			continue;
+		}
+
 		if (try) {
-			try_fmts[i] =
-				imgu_pipe->nodes[inode].vdev_fmt.fmt.pix_mp;
-			fmts[i] = &try_fmts[i];
+			fmts[i] = kmemdup(&imgu_pipe->nodes[inode].vdev_fmt.fmt.pix_mp,
+					  sizeof(struct v4l2_pix_format_mplane),
+					  GFP_KERNEL);
+			if (!fmts[i]) {
+				ret = -ENOMEM;
+				goto out;
+			}
 		} else {
 			fmts[i] = &imgu_pipe->nodes[inode].vdev_fmt.fmt.pix_mp;
 		}
 
-		/* CSS expects some format on OUT queue */
-		if (i != IPU3_CSS_QUEUE_OUT &&
-		    !imgu_pipe->nodes[inode].enabled)
-			fmts[i] = NULL;
 	}
 
 	if (!try) {
@@ -725,31 +734,35 @@ static int imgu_fmt(struct imgu_device *imgu, unsigned int pipe, int node,
 		rects[IPU3_CSS_RECT_GDC]->height = pad_fmt.height;
 	}
 
+	if (!fmts[css_q]) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (try)
+		ret = imgu_css_fmt_try(&imgu->css, fmts, rects, pipe);
+	else
+		ret = imgu_css_fmt_set(&imgu->css, fmts, rects, pipe);
+
+	/* ret is the binary number in the firmware blob */
+	if (ret < 0)
+		goto out;
+
 	/*
 	 * imgu doesn't set the node to the value given by user
 	 * before we return success from this function, so set it here.
 	 */
-	css_q = imgu_node_to_queue(node);
-	if (fmts[css_q])
-		*fmts[css_q] = f->fmt.pix_mp;
-	else
-		return -EINVAL;
+	if (!try)
+		imgu_pipe->nodes[node].vdev_fmt.fmt.pix_mp = f->fmt.pix_mp;
 
-	if (try)
-		r = imgu_css_fmt_try(&imgu->css, fmts, rects, pipe);
-	else
-		r = imgu_css_fmt_set(&imgu->css, fmts, rects, pipe);
+out:
+	if (try) {
+		for (i = 0; i < IPU3_CSS_QUEUES; i++)
+			if (i != css_q)
+				kfree(fmts[i]);
+	}
 
-	/* r is the binary number in the firmware blob */
-	if (r < 0)
-		return r;
-
-	if (try)
-		f->fmt.pix_mp = *fmts[css_q];
-	else
-		f->fmt = imgu_pipe->nodes[node].vdev_fmt.fmt;
-
-	return 0;
+	return ret;
 }
 
 static int imgu_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
@@ -766,9 +779,6 @@ static int imgu_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
 
 	pixm->pixelformat = fmt->fourcc;
 
-	memset(pixm->plane_fmt[0].reserved, 0,
-	       sizeof(pixm->plane_fmt[0].reserved));
-
 	return 0;
 }
 
@@ -781,7 +791,7 @@ static int imgu_vidioc_try_fmt(struct file *file, void *fh,
 	struct v4l2_pix_format_mplane *pix_mp = &f->fmt.pix_mp;
 	int r;
 
-	dev_dbg(dev, "%s [%ux%u] for node %d\n", __func__,
+	dev_dbg(dev, "%s [%ux%u] for node %u\n", __func__,
 		pix_mp->width, pix_mp->height, node->id);
 
 	r = imgu_try_fmt(file, fh, f);
@@ -799,7 +809,7 @@ static int imgu_vidioc_s_fmt(struct file *file, void *fh, struct v4l2_format *f)
 	struct v4l2_pix_format_mplane *pix_mp = &f->fmt.pix_mp;
 	int r;
 
-	dev_dbg(dev, "%s [%ux%u] for node %d\n", __func__,
+	dev_dbg(dev, "%s [%ux%u] for node %u\n", __func__,
 		pix_mp->width, pix_mp->height, node->id);
 
 	r = imgu_try_fmt(file, fh, f);
@@ -830,6 +840,9 @@ static int imgu_meta_enum_format(struct file *file, void *fh,
 	if (fmt->index > 0 || fmt->type != node->vbq.type)
 		return -EINVAL;
 
+	if (fmt->mbus_code != 0 && fmt->mbus_code != MEDIA_BUS_FMT_FIXED)
+		return -EINVAL;
+
 	strscpy(fmt->description, meta_fmts[i].name, sizeof(fmt->description));
 	fmt->pixelformat = meta_fmts[i].fourcc;
 
@@ -847,54 +860,6 @@ static int imgu_vidioc_g_meta_fmt(struct file *file, void *fh,
 	f->fmt = node->vdev_fmt.fmt;
 
 	return 0;
-}
-
-static int imgu_vidioc_enum_input(struct file *file, void *fh,
-				  struct v4l2_input *input)
-{
-	if (input->index > 0)
-		return -EINVAL;
-	strscpy(input->name, "camera", sizeof(input->name));
-	input->type = V4L2_INPUT_TYPE_CAMERA;
-
-	return 0;
-}
-
-static int imgu_vidioc_g_input(struct file *file, void *fh, unsigned int *input)
-{
-	*input = 0;
-
-	return 0;
-}
-
-static int imgu_vidioc_s_input(struct file *file, void *fh, unsigned int input)
-{
-	return input == 0 ? 0 : -EINVAL;
-}
-
-static int imgu_vidioc_enum_output(struct file *file, void *fh,
-				   struct v4l2_output *output)
-{
-	if (output->index > 0)
-		return -EINVAL;
-	strscpy(output->name, "camera", sizeof(output->name));
-	output->type = V4L2_INPUT_TYPE_CAMERA;
-
-	return 0;
-}
-
-static int imgu_vidioc_g_output(struct file *file, void *fh,
-				unsigned int *output)
-{
-	*output = 0;
-
-	return 0;
-}
-
-static int imgu_vidioc_s_output(struct file *file, void *fh,
-				unsigned int output)
-{
-	return output == 0 ? 0 : -EINVAL;
 }
 
 /******************** function pointers ********************/
@@ -959,23 +924,15 @@ static const struct v4l2_file_operations imgu_v4l2_fops = {
 static const struct v4l2_ioctl_ops imgu_v4l2_ioctl_ops = {
 	.vidioc_querycap = imgu_vidioc_querycap,
 
-	.vidioc_enum_fmt_vid_cap_mplane = vidioc_enum_fmt_vid_cap,
+	.vidioc_enum_fmt_vid_cap = vidioc_enum_fmt_vid_cap,
 	.vidioc_g_fmt_vid_cap_mplane = imgu_vidioc_g_fmt,
 	.vidioc_s_fmt_vid_cap_mplane = imgu_vidioc_s_fmt,
 	.vidioc_try_fmt_vid_cap_mplane = imgu_vidioc_try_fmt,
 
-	.vidioc_enum_fmt_vid_out_mplane = vidioc_enum_fmt_vid_out,
+	.vidioc_enum_fmt_vid_out = vidioc_enum_fmt_vid_out,
 	.vidioc_g_fmt_vid_out_mplane = imgu_vidioc_g_fmt,
 	.vidioc_s_fmt_vid_out_mplane = imgu_vidioc_s_fmt,
 	.vidioc_try_fmt_vid_out_mplane = imgu_vidioc_try_fmt,
-
-	.vidioc_enum_output = imgu_vidioc_enum_output,
-	.vidioc_g_output = imgu_vidioc_g_output,
-	.vidioc_s_output = imgu_vidioc_s_output,
-
-	.vidioc_enum_input = imgu_vidioc_enum_input,
-	.vidioc_g_input = imgu_vidioc_g_input,
-	.vidioc_s_input = imgu_vidioc_s_input,
 
 	/* buffer queue management */
 	.vidioc_reqbufs = vb2_ioctl_reqbufs,
@@ -1022,7 +979,7 @@ static int imgu_sd_s_ctrl(struct v4l2_ctrl *ctrl)
 	struct imgu_device *imgu = v4l2_get_subdevdata(&imgu_sd->subdev);
 	struct device *dev = &imgu->pci_dev->dev;
 
-	dev_dbg(dev, "set val %d to ctrl 0x%8x for subdev %d",
+	dev_dbg(dev, "set val %d to ctrl 0x%8x for subdev %u",
 		ctrl->val, ctrl->id, imgu_sd->pipe);
 
 	switch (ctrl->id) {
@@ -1090,7 +1047,7 @@ static void imgu_node_to_v4l2(u32 node, struct video_device *vdev,
 		vdev->ioctl_ops = &imgu_v4l2_ioctl_ops;
 	}
 
-	vdev->device_caps = V4L2_CAP_STREAMING | cap;
+	vdev->device_caps = V4L2_CAP_STREAMING | V4L2_CAP_IO_MC | cap;
 }
 
 static int imgu_v4l2_subdev_register(struct imgu_device *imgu,
@@ -1122,7 +1079,7 @@ static int imgu_v4l2_subdev_register(struct imgu_device *imgu,
 	imgu_sd->subdev.flags = V4L2_SUBDEV_FL_HAS_DEVNODE |
 				V4L2_SUBDEV_FL_HAS_EVENTS;
 	snprintf(imgu_sd->subdev.name, sizeof(imgu_sd->subdev.name),
-		 "%s %d", IMGU_NAME, pipe);
+		 "%s %u", IMGU_NAME, pipe);
 	v4l2_set_subdevdata(&imgu_sd->subdev, imgu);
 	atomic_set(&imgu_sd->running_mode, IPU3_RUNNING_MODE_VIDEO);
 	v4l2_ctrl_handler_init(hdl, 1);
@@ -1240,7 +1197,7 @@ static int imgu_v4l2_node_setup(struct imgu_device *imgu, unsigned int pipe,
 	}
 
 	/* Initialize vdev */
-	snprintf(vdev->name, sizeof(vdev->name), "%s %d %s",
+	snprintf(vdev->name, sizeof(vdev->name), "%s %u %s",
 		 IMGU_NAME, pipe, node->name);
 	vdev->release = video_device_release_empty;
 	vdev->fops = &imgu_v4l2_fops;
@@ -1249,7 +1206,7 @@ static int imgu_v4l2_node_setup(struct imgu_device *imgu, unsigned int pipe,
 	vdev->queue = &node->vbq;
 	vdev->vfl_dir = node->output ? VFL_DIR_TX : VFL_DIR_RX;
 	video_set_drvdata(vdev, imgu);
-	r = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
+	r = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
 	if (r) {
 		dev_err(dev, "failed to register video device (%d)", r);
 		media_entity_cleanup(&vdev->entity);
@@ -1264,6 +1221,11 @@ static int imgu_v4l2_node_setup(struct imgu_device *imgu, unsigned int pipe,
 		r = media_create_pad_link(&vdev->entity, 0, &sd->entity,
 					  node_num, flags);
 	} else {
+		if (node->id == IMGU_NODE_OUT) {
+			flags |= MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE;
+			node->enabled = true;
+		}
+
 		r = media_create_pad_link(&sd->entity, node_num, &vdev->entity,
 					  0, flags);
 	}
@@ -1291,19 +1253,17 @@ static void imgu_v4l2_nodes_cleanup_pipe(struct imgu_device *imgu,
 
 static int imgu_v4l2_nodes_setup_pipe(struct imgu_device *imgu, int pipe)
 {
-	int i, r;
+	int i;
 
 	for (i = 0; i < IMGU_NODE_NUM; i++) {
-		r = imgu_v4l2_node_setup(imgu, pipe, i);
-		if (r)
-			goto cleanup;
+		int r = imgu_v4l2_node_setup(imgu, pipe, i);
+
+		if (r) {
+			imgu_v4l2_nodes_cleanup_pipe(imgu, pipe, i);
+			return r;
+		}
 	}
-
 	return 0;
-
-cleanup:
-	imgu_v4l2_nodes_cleanup_pipe(imgu, pipe, i);
-	return r;
 }
 
 static void imgu_v4l2_subdev_cleanup(struct imgu_device *imgu, unsigned int i)
@@ -1335,7 +1295,7 @@ static int imgu_v4l2_register_pipes(struct imgu_device *imgu)
 		r = imgu_v4l2_subdev_register(imgu, &imgu_pipe->imgu_sd, i);
 		if (r) {
 			dev_err(&imgu->pci_dev->dev,
-				"failed to register subdev%d ret (%d)\n", i, r);
+				"failed to register subdev%u ret (%d)\n", i, r);
 			goto pipes_cleanup;
 		}
 		r = imgu_v4l2_nodes_setup_pipe(imgu, i);

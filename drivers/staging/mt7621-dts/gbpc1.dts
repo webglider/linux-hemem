@@ -100,26 +100,13 @@
 	};
 };
 
-&sysclock {
-			compatible = "fixed-clock";
-			/* This is normally 1/4 of cpuclock */
-			clock-frequency = <225000000>;
-};
-
-&cpuclock {
-			compatible = "fixed-clock";
-			clock-frequency = <900000000>;
-};
-
 &pcie {
-	pinctrl-names = "default";
-	pinctrl-0 = <&pcie_pins>;
 	status = "okay";
 };
 
 &pinctrl {
 	state_default: pinctrl0 {
-		gpio {
+		default_gpio: gpio {
 			groups = "wdt", "rgmii2", "uart3";
 			function = "gpio";
 		};

@@ -8,10 +8,6 @@
 #ifndef GOYA_H
 #define GOYA_H
 
-#include "asic_reg/goya_regs.h"
-
-#include <linux/types.h>
-
 #define SRAM_CFG_BAR_ID		0
 #define MSIX_BAR_ID		2
 #define DDR_BAR_ID		4
@@ -34,12 +30,14 @@
 
 #define QMAN_PQ_ENTRY_SIZE	16			/* Bytes */
 
-#define MAX_ASID		1024
+#define MAX_ASID		2
 
 #define PROT_BITS_OFFS		0xF80
 
 #define DMA_MAX_NUM		5
 
 #define TPC_MAX_NUM		8
+
+#define MME_MAX_NUM		1
 
 #endif /* GOYA_H */

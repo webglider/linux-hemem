@@ -10,13 +10,13 @@
 Usage() {
   echo "Script for testing HBM (Host Bandwidth Manager) framework."
   echo "It creates a cgroup to use for testing and load a BPF program to limit"
-  echo "egress or ingress bandwidht. It then uses iperf3 or netperf to create"
+  echo "egress or ingress bandwidth. It then uses iperf3 or netperf to create"
   echo "loads. The output is the goodput in Mbps (unless -D was used)."
   echo ""
-  echo "USAGE: $name [out] [-b=<prog>|--bpf=<prog>] [-c=<cc>|--cc=<cc>] [-D]"
-  echo "             [-d=<delay>|--delay=<delay>] [--debug] [-E]"
+  echo "USAGE: $name [out] [-b=<prog>|--bpf=<prog>] [-c=<cc>|--cc=<cc>]"
+  echo "             [-D] [-d=<delay>|--delay=<delay>] [--debug] [-E] [--edt]"
   echo "             [-f=<#flows>|--flows=<#flows>] [-h] [-i=<id>|--id=<id >]"
-  echo "             [-l] [-N] [-p=<port>|--port=<port>] [-P]"
+  echo "             [-l] [-N] [--no_cn] [-p=<port>|--port=<port>] [-P]"
   echo "             [-q=<qdisc>] [-R] [-s=<server>|--server=<server]"
   echo "             [-S|--stats] -t=<time>|--time=<time>] [-w] [cubic|dctcp]"
   echo "  Where:"
@@ -30,9 +30,11 @@ Usage() {
   echo "                      other detailed information. This information is"
   echo "                      test dependent (i.e. iperf3 or netperf)."
   echo "    -E                enable ECN (not required for dctcp)"
+  echo "    --edt             use fq's Earliest Departure Time (requires fq)"
   echo "    -f or --flows     number of concurrent flows (default=1)"
   echo "    -i or --id        cgroup id (an integer, default is 1)"
   echo "    -N                use netperf instead of iperf3"
+  echo "    --no_cn           Do not return CN notifications"
   echo "    -l                do not limit flows using loopback"
   echo "    -h                Help"
   echo "    -p or --port      iperf3 port (default is 5201)"
@@ -89,6 +91,16 @@ qdisc=""
 flags=""
 do_stats=0
 
+BPFFS=/sys/fs/bpf
+function config_bpffs () {
+	if mount | grep $BPFFS > /dev/null; then
+		echo "bpffs already mounted"
+	else
+		echo "bpffs not mounted. Mounting..."
+		mount -t bpf none $BPFFS
+	fi
+}
+
 function start_hbm () {
   rm -f hbm.out
   echo "./hbm $dir -n $id -r $rate -t $dur $flags $dbg $prog" > hbm.out
@@ -115,6 +127,9 @@ processArgs () {
     -c=*|--cc=*)
       cc="${i#*=}"
       ;;
+    --no_cn)
+      flags="$flags --no_cn"
+      ;;
     --debug)
       flags="$flags -d"
       debug_flag=1
@@ -126,13 +141,12 @@ processArgs () {
       details=1
       ;;
     -E)
-     ecn=1
+      ecn=1
+      ;;
+    --edt)
+      flags="$flags --edt"
+      qdisc="fq"
      ;;
-    # Support for upcomming fq Early Departure Time egress rate limiting
-    #--edt)
-    # prog="hbm_out_edt_kern.o"
-    # qdisc="fq"
-    # ;;
     -f=*|--flows=*)
       flows="${i#*=}"
       ;;
@@ -188,6 +202,7 @@ processArgs () {
 }
 
 processArgs
+config_bpffs
 
 if [ $debug_flag -eq 1 ] ; then
   rm -f hbm_out.log
@@ -197,7 +212,7 @@ hbm_pid=$(start_hbm)
 usleep 100000
 
 host=`hostname`
-cg_base_dir=/sys/fs/cgroup
+cg_base_dir=/sys/fs/cgroup/unified
 cg_dir="$cg_base_dir/cgroup-test-work-dir/hbm$id"
 
 echo $$ >> $cg_dir/cgroup.procs
@@ -224,8 +239,8 @@ if [ "$netem" -ne "0" ] ; then
   tc qdisc del dev lo root > /dev/null 2>&1
   tc qdisc add dev lo root netem delay $netem\ms > /dev/null 2>&1
 elif [ "$qdisc" != "" ] ; then
-  tc qdisc del dev lo root > /dev/null 2>&1
-  tc qdisc add dev lo root $qdisc > /dev/null 2>&1
+  tc qdisc del dev eth0 root > /dev/null 2>&1
+  tc qdisc add dev eth0 root $qdisc > /dev/null 2>&1
 fi
 
 n=0
@@ -395,7 +410,9 @@ fi
 if [ "$netem" -ne "0" ] ; then
   tc qdisc del dev lo root > /dev/null 2>&1
 fi
-
+if [ "$qdisc" != "" ] ; then
+  tc qdisc del dev eth0 root > /dev/null 2>&1
+fi
 sleep 2
 
 hbmPid=`ps ax | grep "hbm " | grep --invert-match "grep" | awk '{ print $1 }'`
@@ -405,23 +422,8 @@ fi
 
 sleep 1
 
-# Detach any BPF programs that may have lingered
-ttx=`bpftool cgroup tree | grep hbm`
-v=2
-for x in $ttx ; do
-    if [ "${x:0:36}" == "/sys/fs/cgroup/cgroup-test-work-dir/" ] ; then
-	cg=$x ; v=0
-    else
-	if [ $v -eq 0 ] ; then
-	    id=$x ; v=1
-	else
-	    if [ $v -eq 1 ] ; then
-		type=$x ; bpftool cgroup detach $cg $type id $id
-		v=0
-	    fi
-	fi
-    fi
-done
+# Detach any pinned BPF programs that may have lingered
+rm -rf $BPFFS/hbm*
 
 if [ $use_netperf -ne 0 ] ; then
   if [ "$server" == "" ] ; then

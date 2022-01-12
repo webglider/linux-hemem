@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * OV519 driver
  *
@@ -20,17 +21,6 @@
  *
  * Copyright (c) 2004-2007 Romain Beauxis <toots@rastageeks.org>
  * Support for OV7670 sensors was contributed by Sam Skipsey <aoanla@yahoo.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -624,7 +614,7 @@ static const struct ov_i2c_regvals norm_3620b[] = {
 	/*
 	 * From the datasheet: "Note that after writing to register COMH
 	 * (0x12) to change the sensor mode, registers related to the
-	 * sensor’s cropping window will be reset back to their default
+	 * sensor's cropping window will be reset back to their default
 	 * values."
 	 *
 	 * "wait 4096 external clock ... to make sure the sensor is
@@ -2014,7 +2004,7 @@ static void reg_w(struct sd *sd, u16 index, u16 value)
 		break;
 	case BRIDGE_OVFX2:
 		req = 0x0a;
-		/* fall through */
+		fallthrough;
 	case BRIDGE_W9968CF:
 		gspca_dbg(gspca_dev, D_USBO, "SET %02x %04x %04x\n",
 			  req, value, index);
@@ -2083,6 +2073,11 @@ static int reg_r(struct sd *sd, u16 index)
 	} else {
 		gspca_err(gspca_dev, "reg_r %02x failed %d\n", index, ret);
 		sd->gspca_dev.usb_err = ret;
+		/*
+		 * Make sure the result is zeroed to avoid uninitialized
+		 * values.
+		 */
+		gspca_dev->usb_buf[0] = 0;
 	}
 
 	return ret;
@@ -2111,6 +2106,11 @@ static int reg_r8(struct sd *sd,
 	} else {
 		gspca_err(gspca_dev, "reg_r8 %02x failed %d\n", index, ret);
 		sd->gspca_dev.usb_err = ret;
+		/*
+		 * Make sure the buffer is zeroed to avoid uninitialized
+		 * values.
+		 */
+		memset(gspca_dev->usb_buf, 0, 8);
 	}
 
 	return ret;
@@ -3477,6 +3477,11 @@ static void ov511_mode_init_regs(struct sd *sd)
 		return;
 	}
 
+	if (alt->desc.bNumEndpoints < 1) {
+		sd->gspca_dev.usb_err = -ENODEV;
+		return;
+	}
+
 	packet_size = le16_to_cpu(alt->endpoint[0].desc.wMaxPacketSize);
 	reg_w(sd, R51x_FIFO_PSIZE, packet_size >> 5);
 
@@ -3523,7 +3528,7 @@ static void ov511_mode_init_regs(struct sd *sd)
 	case SEN_OV76BE:
 		if (sd->gspca_dev.pixfmt.width == 320)
 			interlaced = 1;
-		/* Fall through */
+		fallthrough;
 	case SEN_OV6630:
 	case SEN_OV7610:
 	case SEN_OV7670:
@@ -3536,7 +3541,7 @@ static void ov511_mode_init_regs(struct sd *sd)
 				break;
 			}
 			/* For 640x480 case */
-			/* fall through */
+			fallthrough;
 		default:
 /*		case 20: */
 /*		case 15: */
@@ -3600,6 +3605,11 @@ static void ov518_mode_init_regs(struct sd *sd)
 	if (!alt) {
 		gspca_err(gspca_dev, "Couldn't get altsetting\n");
 		sd->gspca_dev.usb_err = -EIO;
+		return;
+	}
+
+	if (alt->desc.bNumEndpoints < 1) {
+		sd->gspca_dev.usb_err = -ENODEV;
 		return;
 	}
 

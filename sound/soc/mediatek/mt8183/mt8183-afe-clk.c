@@ -584,7 +584,6 @@ int mt8183_mck_enable(struct mtk_base_afe *afe, int mck_id, int rate)
 			__func__, aud_clks[div_clk_id],
 			rate, ret);
 		goto ERR_SET_MCLK_RATE;
-		return ret;
 	}
 
 	return 0;
@@ -604,6 +603,10 @@ void mt8183_mck_disable(struct mtk_base_afe *afe, int mck_id)
 	struct mt8183_afe_private *afe_priv = afe->platform_priv;
 	int m_sel_id = mck_div[mck_id].m_sel_id;
 	int div_clk_id = mck_div[mck_id].div_clk_id;
+
+	/* i2s5 mck not support */
+	if (mck_id == MT8183_I2S5_MCK)
+		return;
 
 	clk_disable_unprepare(afe_priv->clk[div_clk_id]);
 	if (m_sel_id >= 0)

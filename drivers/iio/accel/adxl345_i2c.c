@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ADXL345 3-Axis Digital Accelerometer I2C driver
  *
  * Copyright (c) 2017 Eva Rachel Retuya <eraretuya@gmail.com>
- *
- * This file is subject to the terms and conditions of version 2 of
- * the GNU General Public License. See the file COPYING in the main
- * directory of this archive for more details.
  *
  * 7-bit I2C slave address: 0x1D (ALT ADDRESS pin tied to VDDIO) or
  * 0x53 (ALT ADDRESS pin grounded)
@@ -41,11 +38,6 @@ static int adxl345_i2c_probe(struct i2c_client *client,
 				  id->name);
 }
 
-static int adxl345_i2c_remove(struct i2c_client *client)
-{
-	return adxl345_core_remove(&client->dev);
-}
-
 static const struct i2c_device_id adxl345_i2c_id[] = {
 	{ "adxl345", ADXL345 },
 	{ "adxl375", ADXL375 },
@@ -68,7 +60,6 @@ static struct i2c_driver adxl345_i2c_driver = {
 		.of_match_table = adxl345_of_match,
 	},
 	.probe		= adxl345_i2c_probe,
-	.remove		= adxl345_i2c_remove,
 	.id_table	= adxl345_i2c_id,
 };
 

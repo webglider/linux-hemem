@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * STTS751 sensor driver
  *
@@ -8,16 +9,6 @@
  * Written by Andrea Merello <andrea.merello@gmail.com>
  *
  * Based on  LM95241 driver and LM90 driver
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/bitops.h>
@@ -85,7 +76,7 @@ static const struct i2c_device_id stts751_id[] = {
 	{ }
 };
 
-static const struct of_device_id stts751_of_match[] = {
+static const struct of_device_id __maybe_unused stts751_of_match[] = {
 	{ .compatible = "stts751" },
 	{ },
 };
@@ -396,7 +387,7 @@ static ssize_t max_alarm_show(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->max_alert);
+	return sysfs_emit(buf, "%d\n", priv->max_alert);
 }
 
 static ssize_t min_alarm_show(struct device *dev,
@@ -413,7 +404,7 @@ static ssize_t min_alarm_show(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->min_alert);
+	return sysfs_emit(buf, "%d\n", priv->min_alert);
 }
 
 static ssize_t input_show(struct device *dev, struct device_attribute *attr,
@@ -428,7 +419,7 @@ static ssize_t input_show(struct device *dev, struct device_attribute *attr,
 	if (ret < 0)
 		return ret;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->temp);
+	return sysfs_emit(buf, "%d\n", priv->temp);
 }
 
 static ssize_t therm_show(struct device *dev, struct device_attribute *attr,
@@ -436,7 +427,7 @@ static ssize_t therm_show(struct device *dev, struct device_attribute *attr,
 {
 	struct stts751_priv *priv = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->therm);
+	return sysfs_emit(buf, "%d\n", priv->therm);
 }
 
 static ssize_t therm_store(struct device *dev, struct device_attribute *attr,
@@ -478,7 +469,7 @@ static ssize_t hyst_show(struct device *dev, struct device_attribute *attr,
 {
 	struct stts751_priv *priv = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->hyst);
+	return sysfs_emit(buf, "%d\n", priv->hyst);
 }
 
 static ssize_t hyst_store(struct device *dev, struct device_attribute *attr,
@@ -518,7 +509,7 @@ static ssize_t therm_trip_show(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->therm_trip);
+	return sysfs_emit(buf, "%d\n", priv->therm_trip);
 }
 
 static ssize_t max_show(struct device *dev, struct device_attribute *attr,
@@ -526,7 +517,7 @@ static ssize_t max_show(struct device *dev, struct device_attribute *attr,
 {
 	struct stts751_priv *priv = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->event_max);
+	return sysfs_emit(buf, "%d\n", priv->event_max);
 }
 
 static ssize_t max_store(struct device *dev, struct device_attribute *attr,
@@ -560,7 +551,7 @@ static ssize_t min_show(struct device *dev, struct device_attribute *attr,
 {
 	struct stts751_priv *priv = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", priv->event_min);
+	return sysfs_emit(buf, "%d\n", priv->event_min);
 }
 
 static ssize_t min_store(struct device *dev, struct device_attribute *attr,
@@ -594,8 +585,8 @@ static ssize_t interval_show(struct device *dev,
 {
 	struct stts751_priv *priv = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-			stts751_intervals[priv->interval]);
+	return sysfs_emit(buf, "%d\n",
+			  stts751_intervals[priv->interval]);
 }
 
 static ssize_t interval_store(struct device *dev,
@@ -771,8 +762,7 @@ static struct attribute *stts751_attrs[] = {
 };
 ATTRIBUTE_GROUPS(stts751);
 
-static int stts751_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+static int stts751_probe(struct i2c_client *client)
 {
 	struct stts751_priv *priv;
 	int ret;
@@ -831,7 +821,7 @@ static struct i2c_driver stts751_driver = {
 		.name	= DEVNAME,
 		.of_match_table = of_match_ptr(stts751_of_match),
 	},
-	.probe		= stts751_probe,
+	.probe_new	= stts751_probe,
 	.id_table	= stts751_id,
 	.detect		= stts751_detect,
 	.alert		= stts751_alert,

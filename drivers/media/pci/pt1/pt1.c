@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * driver for Earthsoft PT1/PT2
  *
@@ -5,16 +6,6 @@
  *
  * based on pt1dvr - http://pt1dvr.sourceforge.jp/
  *	by Tomoaki Ishikawa <tomy@users.sourceforge.jp>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/kernel.h>
@@ -343,8 +334,7 @@ static int pt1_sync(struct pt1 *pt1)
 static u64 pt1_identify(struct pt1 *pt1)
 {
 	int i;
-	u64 id;
-	id = 0;
+	u64 id = 0;
 	for (i = 0; i < 57; i++) {
 		id |= (u64)(pt1_read_reg(pt1, 0) >> 30 & 1) << i;
 		pt1_write_reg(pt1, 0, 0x00000008);
@@ -1131,8 +1121,7 @@ static int pt1_i2c_end(struct pt1 *pt1, int addr)
 
 static void pt1_i2c_begin(struct pt1 *pt1, int *addrp)
 {
-	int addr;
-	addr = 0;
+	int addr = 0;
 
 	pt1_i2c_emit(pt1, addr,     0, 0, 1, 1, addr /* itself */);
 	addr = addr + 1;
@@ -1226,8 +1215,7 @@ static void pt1_i2c_init(struct pt1 *pt1)
 
 static int pt1_suspend(struct device *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct pt1 *pt1 = pci_get_drvdata(pdev);
+	struct pt1 *pt1 = dev_get_drvdata(dev);
 
 	pt1_init_streams(pt1);
 	pt1_disable_ram(pt1);
@@ -1239,8 +1227,7 @@ static int pt1_suspend(struct device *dev)
 
 static int pt1_resume(struct device *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct pt1 *pt1 = pci_get_drvdata(pdev);
+	struct pt1 *pt1 = dev_get_drvdata(dev);
 	int ret;
 	int i;
 

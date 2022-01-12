@@ -1,15 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (C) 2007-2010 Freescale Semiconductor, Inc. All rights reserved.
  *
  * Author:
  *   Zhang Wei <wei.zhang@freescale.com>, Jul 2007
  *   Ebony Zhu <ebony.zhu@freescale.com>, May 2007
- *
- * This is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
  */
 #ifndef __DMA_FSLDMA_H
 #define __DMA_FSLDMA_H
@@ -210,10 +205,10 @@ struct fsldma_chan {
 #else
 static u64 fsl_ioread64(const u64 __iomem *addr)
 {
-	u32 fsl_addr = lower_32_bits(addr);
-	u64 fsl_addr_hi = (u64)in_le32((u32 *)(fsl_addr + 1)) << 32;
+	u32 val_lo = in_le32((u32 __iomem *)addr);
+	u32 val_hi = in_le32((u32 __iomem *)addr + 1);
 
-	return fsl_addr_hi | in_le32((u32 *)fsl_addr);
+	return ((u64)val_hi << 32) + val_lo;
 }
 
 static void fsl_iowrite64(u64 val, u64 __iomem *addr)
@@ -224,10 +219,10 @@ static void fsl_iowrite64(u64 val, u64 __iomem *addr)
 
 static u64 fsl_ioread64be(const u64 __iomem *addr)
 {
-	u32 fsl_addr = lower_32_bits(addr);
-	u64 fsl_addr_hi = (u64)in_be32((u32 *)fsl_addr) << 32;
+	u32 val_hi = in_be32((u32 __iomem *)addr);
+	u32 val_lo = in_be32((u32 __iomem *)addr + 1);
 
-	return fsl_addr_hi | in_be32((u32 *)(fsl_addr + 1));
+	return ((u64)val_hi << 32) + val_lo;
 }
 
 static void fsl_iowrite64be(u64 val, u64 __iomem *addr)

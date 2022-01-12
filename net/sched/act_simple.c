@@ -1,13 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * net/sched/act_simple.c	Simple example of an action
  *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
- *
  * Authors:	Jamal Hadi Salim (2005-8)
- *
  */
 
 #include <linux/module.h>
@@ -40,7 +35,7 @@ static int tcf_simp_act(struct sk_buff *skb, const struct tc_action *a,
 	 * Example if this was the 3rd packet and the string was "hello"
 	 * then it would look like "hello_3" (without quotes)
 	 */
-	pr_info("simple: %s_%d\n",
+	pr_info("simple: %s_%llu\n",
 	       (char *)d->tcfd_defdata, d->tcf_bstats.packets);
 	spin_unlock(&d->tcf_lock);
 	return d->tcf_action;
@@ -57,7 +52,7 @@ static int alloc_defdata(struct tcf_defact *d, const struct nlattr *defdata)
 	d->tcfd_defdata = kzalloc(SIMP_MAX_DATA, GFP_KERNEL);
 	if (unlikely(!d->tcfd_defdata))
 		return -ENOMEM;
-	nla_strlcpy(d->tcfd_defdata, defdata, SIMP_MAX_DATA);
+	nla_strscpy(d->tcfd_defdata, defdata, SIMP_MAX_DATA);
 	return 0;
 }
 
@@ -76,7 +71,7 @@ static int reset_policy(struct tc_action *a, const struct nlattr *defdata,
 	spin_lock_bh(&d->tcf_lock);
 	goto_ch = tcf_action_set_ctrlact(a, p->action, goto_ch);
 	memset(d->tcfd_defdata, 0, SIMP_MAX_DATA);
-	nla_strlcpy(d->tcfd_defdata, defdata, SIMP_MAX_DATA);
+	nla_strscpy(d->tcfd_defdata, defdata, SIMP_MAX_DATA);
 	spin_unlock_bh(&d->tcf_lock);
 	if (goto_ch)
 		tcf_chain_put_by_act(goto_ch);
@@ -90,21 +85,24 @@ static const struct nla_policy simple_policy[TCA_DEF_MAX + 1] = {
 
 static int tcf_simp_init(struct net *net, struct nlattr *nla,
 			 struct nlattr *est, struct tc_action **a,
-			 int ovr, int bind, bool rtnl_held,
-			 struct tcf_proto *tp, struct netlink_ext_ack *extack)
+			 struct tcf_proto *tp, u32 flags,
+			 struct netlink_ext_ack *extack)
 {
 	struct tc_action_net *tn = net_generic(net, simp_net_id);
+	bool bind = flags & TCA_ACT_FLAGS_BIND;
 	struct nlattr *tb[TCA_DEF_MAX + 1];
 	struct tcf_chain *goto_ch = NULL;
 	struct tc_defact *parm;
 	struct tcf_defact *d;
 	bool exists = false;
 	int ret = 0, err;
+	u32 index;
 
 	if (nla == NULL)
 		return -EINVAL;
 
-	err = nla_parse_nested(tb, TCA_DEF_MAX, nla, simple_policy, NULL);
+	err = nla_parse_nested_deprecated(tb, TCA_DEF_MAX, nla, simple_policy,
+					  NULL);
 	if (err < 0)
 		return err;
 
@@ -112,7 +110,8 @@ static int tcf_simp_init(struct net *net, struct nlattr *nla,
 		return -EINVAL;
 
 	parm = nla_data(tb[TCA_DEF_PARMS]);
-	err = tcf_idr_check_alloc(tn, &parm->index, a, bind);
+	index = parm->index;
+	err = tcf_idr_check_alloc(tn, &index, a, bind);
 	if (err < 0)
 		return err;
 	exists = err;
@@ -123,15 +122,15 @@ static int tcf_simp_init(struct net *net, struct nlattr *nla,
 		if (exists)
 			tcf_idr_release(*a, bind);
 		else
-			tcf_idr_cleanup(tn, parm->index);
+			tcf_idr_cleanup(tn, index);
 		return -EINVAL;
 	}
 
 	if (!exists) {
-		ret = tcf_idr_create(tn, parm->index, est, a,
-				     &act_simp_ops, bind, false);
+		ret = tcf_idr_create(tn, index, est, a,
+				     &act_simp_ops, bind, false, 0);
 		if (ret) {
-			tcf_idr_cleanup(tn, parm->index);
+			tcf_idr_cleanup(tn, index);
 			return ret;
 		}
 
@@ -148,7 +147,7 @@ static int tcf_simp_init(struct net *net, struct nlattr *nla,
 		tcf_action_set_ctrlact(*a, parm->action, goto_ch);
 		ret = ACT_P_CREATED;
 	} else {
-		if (!ovr) {
+		if (!(flags & TCA_ACT_FLAGS_REPLACE)) {
 			err = -EEXIST;
 			goto release_idr;
 		}
@@ -158,8 +157,6 @@ static int tcf_simp_init(struct net *net, struct nlattr *nla,
 			goto release_idr;
 	}
 
-	if (ret == ACT_P_CREATED)
-		tcf_idr_insert(tn, *a);
 	return ret;
 put_chain:
 	if (goto_ch)
@@ -234,7 +231,7 @@ static __net_init int simp_init_net(struct net *net)
 {
 	struct tc_action_net *tn = net_generic(net, simp_net_id);
 
-	return tc_action_net_init(tn, &act_simp_ops);
+	return tc_action_net_init(net, tn, &act_simp_ops);
 }
 
 static void __net_exit simp_exit_net(struct list_head *net_list)
