@@ -121,6 +121,7 @@ retry_pte:
 			 * includes detection of the zero page (where
 			 * page==NULL)
 			 */
+#if 0
 			if (uffd_wp_resolve) {
 				struct vm_fault vmf = {
 					.vma = vma,
@@ -153,6 +154,7 @@ retry_pte:
 					 */
 					goto retry_pte;
 			}
+#endif  
 
 			oldpte = ptep_modify_prot_start(vma, addr, pte);
 			ptent = pte_modify(oldpte, newprot);
