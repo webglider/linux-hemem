@@ -31,7 +31,7 @@
 #include <linux/delay.h>
 #include <linux/pci.h>
 #include <asm/pgtable.h>
-#include <linux/mutex.h>
+#include <linux/spinlock.h>
 
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 //For simplicity, request/release a fixed number of channs
@@ -41,7 +41,7 @@ u32 size_per_dma_request =  MAX_SIZE_PER_DMA_REQUEST;
 u32 dma_channs = 0;
 
 struct tx_dma_param {
-    struct mutex tx_dma_mutex;
+    spinlock_t tx_dma_lock;
 	u64 expect_count;
 	volatile u64 wakeup_count;
 };
@@ -667,14 +667,13 @@ out:
 static void hemem_dma_tx_callback(void *dma_async_param)
 {
 	struct tx_dma_param *tx_dma_param = (struct tx_dma_param*)dma_async_param;
-    struct mutex *tx_dma_mutex = &(tx_dma_param->tx_dma_mutex);
-    mutex_lock(tx_dma_mutex);
+    spin_lock(&(tx_dma_param->tx_dma_lock));
 	(tx_dma_param->wakeup_count)++;
 	if (tx_dma_param->wakeup_count < tx_dma_param->expect_count) {
-        mutex_unlock(tx_dma_mutex);
+        spin_unlock(&(tx_dma_param->tx_dma_lock));
 		return;
 	}
-    mutex_unlock(tx_dma_mutex);
+    spin_unlock(&(tx_dma_param->tx_dma_lock));
 	wake_up_interruptible(&wq);
 }
 
@@ -879,7 +878,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
 
 	tx_dma_param.wakeup_count = 0;
 	tx_dma_param.expect_count = expect_count;
-    mutex_init(&(tx_dma_param.tx_dma_mutex));
+    spin_lock_init(&(tx_dma_param.tx_dma_lock));
         
     for (index  = 0; index < count; index++) {
 		dst_start = uffdio_dma_copy->dst[index];
