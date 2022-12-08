@@ -674,7 +674,7 @@ static void hemem_dma_tx_callback(void *dma_async_param)
 		return;
 	}
     spin_unlock(&(tx_dma_param->tx_dma_lock));
-	wake_up_interruptible(&wq);
+	wake_up(&wq);
 }
 
 static int bad_address(void *p)
@@ -938,7 +938,7 @@ static __always_inline ssize_t __dma_mcopy_pages(struct mm_struct *dst_mm,
         }
 	}
 
-	wait_event_interruptible(wq, tx_dma_param.wakeup_count >= tx_dma_param.expect_count);
+	wait_event(wq, tx_dma_param.wakeup_count >= tx_dma_param.expect_count);
     #ifdef DEBUG_TM
     end_copy = rdtsc();
     #endif
