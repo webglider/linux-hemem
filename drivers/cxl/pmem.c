@@ -21,7 +21,7 @@ static void unregister_nvdimm(void *nvdimm)
 	nvdimm_delete(nvdimm);
 }
 
-static int match_nvdimm_bridge(struct device *dev, const void *data)
+static int match_nvdimm_bridge(struct device *dev, void *data)
 {
 	return strcmp(dev_name(dev), "nvdimm-bridge") == 0;
 }
