@@ -1245,6 +1245,15 @@ static inline u64 intel_hsw_transaction(struct pebs_record_skl *pebs)
 	return txn;
 }
 
+static inline u64 intel_get_tsx_weight(u64 tsx_tuning)
+{
+	if (tsx_tuning) {
+		union hsw_tsx_tuning tsx = { .value = tsx_tuning };
+		return tsx.cycles_last_block;
+	}
+	return 0;
+}
+
 static inline u64 get_pebs_status(void *n)
 {
 	if (x86_pmu.intel_cap.pebs_format < 4)
